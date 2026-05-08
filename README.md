@@ -97,21 +97,33 @@ npx prisma migrate dev --name init
 npm run dev
 ```
 
-### 7) (Opcional) Rodar Web
-Em outro terminal:
-```bash
-cd web
-npm install
-npm run dev
-```
+### 7) Estado atual dos diretórios `web` e `mobile`
+Atualmente, este repositório **não possui `package.json`** em `web/` nem em `mobile/`.
+Por isso, se você rodar `npm install` nesses diretórios, vai receber erro `ENOENT` (arquivo inexistente).
 
-### 8) (Opcional) Rodar Mobile
-Em outro terminal:
-```bash
-cd mobile
-npm install
-npm start
-```
+Em outras palavras: neste momento, o único serviço pronto para instalar/rodar com npm é a API em `api/`.
+
+Se você quiser habilitar `web` ou `mobile`, primeiro é necessário inicializar cada app (por exemplo com Vite/React para web e Expo/React Native para mobile) e criar seus `package.json`.
+
+
+## "Não é mais fácil só passar um package.json?"
+Parcialmente. **Dá para criar um `package.json` mínimo**, mas isso sozinho **não resolve** `web`/`mobile` por completo.
+
+### Implicações reais
+- `package.json` sem código base (src, config, build tooling) apenas permite o `npm install`, mas o app não sobe.
+- `web` precisa de stack definida (ex.: Vite + React + TypeScript), `index.html`, `src/main.*`, configs (`vite.config.*`, `tsconfig*`) e scripts (`dev`, `build`).
+- `mobile` precisa definir framework (normalmente Expo), além de `app.json`, entrypoint, dependências nativas e setup de emulador/device.
+- Versões e libs (React, React Native, Expo, roteamento, estado, UI, auth) impactam toda a arquitetura; um `package.json` "genérico" pode criar dívida técnica e incompatibilidades.
+
+### Melhor caminho
+1. Inicializar `web` e `mobile` com os geradores oficiais (Vite/Expo).
+2. Commitar estrutura completa de cada app (não apenas `package.json`).
+3. Padronizar versões de Node/npm no time.
+
+Se quiser, eu monto no próximo passo os comandos exatos para gerar os dois projetos já com scripts prontos para desenvolvimento.
+
+## O que faltou no seu caso (erro ENOENT no `web`)?
+Faltou apenas alinhar com o estado atual do repositório: o diretório `web/` existe, mas ainda não foi inicializado como projeto Node (sem `package.json`).
 
 ## Subir API (resumo rápido)
 ```bash
