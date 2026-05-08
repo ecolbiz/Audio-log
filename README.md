@@ -1,4 +1,4 @@
-# Vazio - Plataforma de gravações com transcrição estruturada
+# AudioLog - Plataforma de gravações com transcrição estruturada
 
 ## Arquitetura
 - `api/`: Node.js + Express + Prisma + PostgreSQL.
@@ -60,15 +60,15 @@ psql --version
 ### 3) Criar usuário/banco para desenvolvimento
 ```bash
 createuser -s postgres
-createdb vazio_dev
+createdb audiolog_dev
 ```
 
 Se preferir criar com SQL:
 ```bash
 psql postgres
-CREATE ROLE vazio_user WITH LOGIN PASSWORD 'vazio123';
-ALTER ROLE vazio_user CREATEDB;
-CREATE DATABASE vazio_dev OWNER vazio_user;
+CREATE ROLE audiolog_user WITH LOGIN PASSWORD 'vazio123';
+ALTER ROLE audiolog_user CREATEDB;
+CREATE DATABASE audiolog_dev OWNER audiolog_user;
 \q
 ```
 
@@ -80,7 +80,7 @@ cp .env.example .env
 
 Edite o `.env` e ajuste `DATABASE_URL` (exemplo):
 ```env
-DATABASE_URL="postgresql://vazio_user:vazio123@localhost:5432/vazio_dev?schema=public"
+DATABASE_URL="postgresql://audiolog_user:vazio123@localhost:5432/audiolog_dev?schema=public"
 JWT_SECRET="troque-este-segredo"
 PORT=3000
 ```
