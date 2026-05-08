@@ -27,7 +27,93 @@
 - `GET /api/admin/audios?q=`
 - `PATCH /api/admin/audios/:id`
 
-## Subir API
+## Preciso instalar PostgreSQL no Mac para rodar em dev?
+Sim — para rodar a API localmente, **PostgreSQL é obrigatório** porque o Prisma está configurado com `provider = "postgresql"` no schema.
+
+## Passo a passo (macOS) para instalar e rodar o projeto
+
+### 1) Pré-requisitos
+Instale:
+- **Homebrew**
+- **Node.js 20+** (recomendado usar `nvm`)
+- **PostgreSQL 16+**
+
+Exemplo com Homebrew:
+```bash
+brew update
+brew install nvm
+brew install node
+brew install postgresql@16
+```
+
+### 2) Iniciar e habilitar PostgreSQL
+```bash
+brew services start postgresql@16
+```
+
+Verifique se subiu corretamente:
+```bash
+brew services list
+psql --version
+```
+
+### 3) Criar usuário/banco para desenvolvimento
+```bash
+createuser -s postgres
+createdb vazio_dev
+```
+
+Se preferir criar com SQL:
+```bash
+psql postgres
+CREATE ROLE vazio_user WITH LOGIN PASSWORD 'vazio123';
+ALTER ROLE vazio_user CREATEDB;
+CREATE DATABASE vazio_dev OWNER vazio_user;
+\q
+```
+
+### 4) Configurar variáveis de ambiente da API
+```bash
+cd api
+cp .env.example .env
+```
+
+Edite o `.env` e ajuste `DATABASE_URL` (exemplo):
+```env
+DATABASE_URL="postgresql://vazio_user:vazio123@localhost:5432/vazio_dev?schema=public"
+JWT_SECRET="troque-este-segredo"
+PORT=3000
+```
+
+### 5) Instalar dependências da API e preparar banco
+```bash
+npm install
+npx prisma generate
+npx prisma migrate dev --name init
+```
+
+### 6) Rodar API
+```bash
+npm run dev
+```
+
+### 7) (Opcional) Rodar Web
+Em outro terminal:
+```bash
+cd web
+npm install
+npm run dev
+```
+
+### 8) (Opcional) Rodar Mobile
+Em outro terminal:
+```bash
+cd mobile
+npm install
+npm start
+```
+
+## Subir API (resumo rápido)
 ```bash
 cd api
 cp .env.example .env
