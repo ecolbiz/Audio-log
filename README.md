@@ -27,7 +27,105 @@
 - `GET /api/admin/audios?q=`
 - `PATCH /api/admin/audios/:id`
 
-## Subir API
+## Preciso instalar PostgreSQL no Mac para rodar em dev?
+Sim — para rodar a API localmente, **PostgreSQL é obrigatório** porque o Prisma está configurado com `provider = "postgresql"` no schema.
+
+## Passo a passo (macOS) para instalar e rodar o projeto
+
+### 1) Pré-requisitos
+Instale:
+- **Homebrew**
+- **Node.js 20+** (recomendado usar `nvm`)
+- **PostgreSQL 16+**
+
+Exemplo com Homebrew:
+```bash
+brew update
+brew install nvm
+brew install node
+brew install postgresql@16
+```
+
+### 2) Iniciar e habilitar PostgreSQL
+```bash
+brew services start postgresql@16
+```
+
+Verifique se subiu corretamente:
+```bash
+brew services list
+psql --version
+```
+
+### 3) Criar usuário/banco para desenvolvimento
+```bash
+createuser -s postgres
+createdb vazio_dev
+```
+
+Se preferir criar com SQL:
+```bash
+psql postgres
+CREATE ROLE vazio_user WITH LOGIN PASSWORD 'vazio123';
+ALTER ROLE vazio_user CREATEDB;
+CREATE DATABASE vazio_dev OWNER vazio_user;
+\q
+```
+
+### 4) Configurar variáveis de ambiente da API
+```bash
+cd api
+cp .env.example .env
+```
+
+Edite o `.env` e ajuste `DATABASE_URL` (exemplo):
+```env
+DATABASE_URL="postgresql://vazio_user:vazio123@localhost:5432/vazio_dev?schema=public"
+JWT_SECRET="troque-este-segredo"
+PORT=3000
+```
+
+### 5) Instalar dependências da API e preparar banco
+```bash
+npm install
+npx prisma generate
+npx prisma migrate dev --name init
+```
+
+### 6) Rodar API
+```bash
+npm run dev
+```
+
+### 7) Estado atual dos diretórios `web` e `mobile`
+Atualmente, este repositório **não possui `package.json`** em `web/` nem em `mobile/`.
+Por isso, se você rodar `npm install` nesses diretórios, vai receber erro `ENOENT` (arquivo inexistente).
+
+Em outras palavras: neste momento, o único serviço pronto para instalar/rodar com npm é a API em `api/`.
+
+Se você quiser habilitar `web` ou `mobile`, primeiro é necessário inicializar cada app (por exemplo com Vite/React para web e Expo/React Native para mobile) e criar seus `package.json`.
+
+
+## "Não é mais fácil só passar um package.json?"
+Parcialmente. **Dá para criar um `package.json` mínimo**, mas isso sozinho **não resolve** `web`/`mobile` por completo.
+
+### Implicações reais
+- `package.json` sem código base (src, config, build tooling) apenas permite o `npm install`, mas o app não sobe.
+- `web` precisa de stack definida (ex.: Vite + React + TypeScript), `index.html`, `src/main.*`, configs (`vite.config.*`, `tsconfig*`) e scripts (`dev`, `build`).
+- `mobile` precisa definir framework (normalmente Expo), além de `app.json`, entrypoint, dependências nativas e setup de emulador/device.
+- Versões e libs (React, React Native, Expo, roteamento, estado, UI, auth) impactam toda a arquitetura; um `package.json` "genérico" pode criar dívida técnica e incompatibilidades.
+
+### Melhor caminho
+1. Inicializar `web` e `mobile` com os geradores oficiais (Vite/Expo).
+2. Commitar estrutura completa de cada app (não apenas `package.json`).
+3. Padronizar versões de Node/npm no time.
+
+Se quiser, eu monto no próximo passo os comandos exatos para gerar os dois projetos já com scripts prontos para desenvolvimento.
+
+## O que faltou no seu caso (erro ENOENT no `web`)?
+Faltou apenas alinhar com o estado atual do repositório: o diretório `web/` existe, mas ainda não foi inicializado como projeto Node (sem `package.json`).
+
+## Subir API (resumo rápido)
 ```bash
 cd api
 cp .env.example .env
