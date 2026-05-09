@@ -1,98 +1,154 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import { Audio } from 'expo-av';
+import { useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { BASE_URL } from '@/lib/api';
+import { getToken } from '@/lib/auth';
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+export default function RecordScreen() {
+  const [recording, setRecording] = useState<Audio.Recording | null>(null);
+  const [uploading, setUploading] = useState(false);
 
-export default function HomeScreen() {
+  async function startRecording() {
+    const { granted } = await Audio.requestPermissionsAsync();
+    if (!granted) {
+      Alert.alert('Permissão negada', 'Habilite o microfone nas configurações do celular.');
+      return;
+    }
+
+    await Audio.setAudioModeAsync({
+      allowsRecordingIOS: true,
+      playsInSilentModeIOS: true,
+    });
+
+    const { recording } = await Audio.Recording.createAsync(
+      Audio.RecordingOptionsPresets.HIGH_QUALITY
+    );
+    setRecording(recording);
+  }
+
+  async function stopAndSave() {
+    if (!recording) return;
+
+    await recording.stopAndUnloadAsync();
+    const uri = recording.getURI();
+    setRecording(null);
+
+    if (!uri) return;
+
+    setUploading(true);
+    try {
+      const token = await getToken();
+      const form = new FormData();
+      form.append('audio', {
+        uri,
+        name: `audio_${Date.now()}.m4a`,
+        type: 'audio/m4a',
+      } as any);
+
+      const res = await fetch(`${BASE_URL}/audios`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+      });
+
+      if (!res.ok) throw new Error('Falha no upload');
+      Alert.alert('Salvo!', 'Áudio enviado com sucesso.');
+    } catch {
+      Alert.alert('Erro', 'Não foi possível salvar o áudio. Tente novamente.');
+    } finally {
+      setUploading(false);
+    }
+  }
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+    <View style={styles.container}>
+      <Text style={styles.title}>Audio Log</Text>
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+      {recording && (
+        <View style={styles.recordingIndicator}>
+          <View style={styles.dot} />
+          <Text style={styles.recordingText}>Gravando...</Text>
+        </View>
+      )}
+
+      {uploading ? (
+        <View style={styles.uploadingContainer}>
+          <ActivityIndicator size="large" color="#2563EB" />
+          <Text style={styles.uploadingText}>Salvando áudio...</Text>
+        </View>
+      ) : recording ? (
+        <TouchableOpacity style={[styles.button, styles.stopButton]} onPress={stopAndSave}>
+          <Text style={styles.buttonText}>Parar e Salvar</Text>
+        </TouchableOpacity>
+      ) : (
+        <TouchableOpacity style={[styles.button, styles.startButton]} onPress={startRecording}>
+          <Text style={styles.buttonText}>Iniciar Gravação</Text>
+        </TouchableOpacity>
+      )}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
+  container: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    gap: 32,
+  },
+  title: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    color: '#111',
+  },
+  recordingIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
+  dot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#EF4444',
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+  recordingText: {
+    fontSize: 16,
+    color: '#EF4444',
+    fontWeight: '500',
+  },
+  button: {
+    paddingHorizontal: 48,
+    paddingVertical: 20,
+    borderRadius: 50,
+    minWidth: 220,
+    alignItems: 'center',
+  },
+  startButton: {
+    backgroundColor: '#22C55E',
+  },
+  stopButton: {
+    backgroundColor: '#EF4444',
+  },
+  buttonText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  uploadingContainer: {
+    alignItems: 'center',
+    gap: 12,
+  },
+  uploadingText: {
+    fontSize: 16,
+    color: '#666',
   },
 });
