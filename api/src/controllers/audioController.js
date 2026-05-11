@@ -15,6 +15,11 @@ exports.uploadAudio = async (req, res) => {
       const transcriptRaw = await transcribeAudio(req.file.path);
       const structured = parseStructuredText(transcriptRaw);
       await prisma.audio.update({ where: { id: audio.id }, data: { ...structured, transcriptRaw, status: 'TRANSCRIBED' } });
+      await prisma.transcription.upsert({
+        where: { audioId: audio.id },
+        create: { audioId: audio.id, fullText: transcriptRaw, fields: {} },
+        update: { fullText: transcriptRaw },
+      });
     } catch (err) {
       console.error('[transcription error]', err?.message ?? err);
       await prisma.audio.update({ where: { id: audio.id }, data: { status: 'FAILED' } });
@@ -35,7 +40,6 @@ exports.deleteMine = async (req, res) => {
   if (!audio || audio.userId !== req.user.id) return res.status(404).json({ error: 'Áudio não encontrado' });
 
   await prisma.audio.delete({ where: { id } });
-  await prisma.auditLog.create({ data: { actorUserId: req.user.id, audioId: id, action: 'DELETE', oldValue: audio } });
   res.status(204).send();
 };
 

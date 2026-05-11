@@ -1,6 +1,5 @@
 import { useState } from 'react';
-
-const API = 'http://localhost:3000/api';
+import { apiFetch } from '../lib/api';
 
 export default function Transcripts({ token }) {
   const [q, setQ] = useState('');
@@ -9,10 +8,10 @@ export default function Transcripts({ token }) {
 
   async function search() {
     setLoading(true);
-    const res = await fetch(`${API}/admin/audios?q=${encodeURIComponent(q)}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    setItems(await res.json());
+    const res = await apiFetch(`/admin/audios?q=${encodeURIComponent(q)}`, { token });
+    if (!res) return;
+    const data = await res.json();
+    setItems(Array.isArray(data) ? data : []);
     setLoading(false);
   }
 

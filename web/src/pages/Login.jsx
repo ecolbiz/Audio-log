@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-
-const API = 'http://localhost:3000/api';
+import { API } from '../lib/api';
 
 export default function Login({ onLogin }) {
   const [email, setEmail] = useState('');

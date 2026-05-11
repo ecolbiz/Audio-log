@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-
-const API = 'http://localhost:3000/api';
+import { apiFetch, API } from '../lib/api';
+import TranscriptionModal from '../components/TranscriptionModal';
 
 function formatDate(iso) {
   return new Date(iso).toLocaleString('pt-BR', {
@@ -15,7 +15,7 @@ function statusLabel(status) {
   return { text: 'Processando', color: '#f59e0b' };
 }
 
-function AudioCard({ audio, userName, isPlaying, onTogglePlay }) {
+function AudioCard({ audio, userName, isPlaying, onTogglePlay, onDelete, isDeleting, onOpen }) {
   const [expanded, setExpanded] = useState(false);
   const st = statusLabel(audio.status);
 
@@ -39,22 +39,26 @@ function AudioCard({ audio, userName, isPlaying, onTogglePlay }) {
           {st.text}
         </span>
 
-        {audio.transcriptRaw && (
-          <button style={styles.expandBtn} onClick={() => setExpanded((v) => !v)}>
-            {expanded ? '▲ Fechar' : '▼ Ver transcrição'}
+        {audio.status === 'TRANSCRIBED' && (
+          <button style={styles.expandBtn} onClick={() => onOpen(audio)}>
+            Abrir
           </button>
         )}
 
         {audio.status === 'PENDING' && (
           <span style={styles.spinner} title="Aguardando transcrição..." />
         )}
+
+        <button
+          style={styles.deleteBtn}
+          onClick={() => onDelete(audio)}
+          disabled={isDeleting}
+          title="Remover gravação"
+        >
+          {isDeleting ? '...' : '🗑'}
+        </button>
       </div>
 
-      {expanded && audio.transcriptRaw && (
-        <div style={styles.transcript}>
-          <p style={styles.transcriptText}>{audio.transcriptRaw}</p>
-        </div>
-      )}
     </div>
   );
 }
@@ -64,33 +68,42 @@ export default function AudioList({ token }) {
   const [audios, setAudios] = useState([]);
   const [loading, setLoading] = useState(true);
   const [playingId, setPlayingId] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
+  const [openAudio, setOpenAudio] = useState(null);
   const audioRef = useRef(null);
 
-  function fetchData() {
-    const headers = { Authorization: `Bearer ${token}` };
-    Promise.all([
-      fetch(`${API}/auth/me`, { headers }).then((r) => r.json()),
-      fetch(`${API}/audios/mine`, { headers }).then((r) => r.json()),
-    ]).then(([u, a]) => {
-      setUser(u);
-      setAudios(a);
-      setLoading(false);
-    });
+  async function fetchData() {
+    const res = await apiFetch('/auth/me', { token });
+    const resAudios = await apiFetch('/audios/mine', { token });
+    if (!res || !resAudios) return;
+    const [u, a] = await Promise.all([res.json(), resAudios.json()]);
+    setUser(u);
+    setAudios(Array.isArray(a) ? a : []);
+    setLoading(false);
   }
 
   useEffect(() => {
     fetchData();
-    // poll every 5s while any audio is still PENDING
-    const interval = setInterval(() => {
-      fetch(`${API}/audios/mine`, { headers: { Authorization: `Bearer ${token}` } })
-        .then((r) => r.json())
-        .then((a) => {
-          setAudios(a);
-          if (!a.some((x) => x.status === 'PENDING')) clearInterval(interval);
-        });
+    const interval = setInterval(async () => {
+      const res = await apiFetch('/audios/mine', { token });
+      if (!res) return clearInterval(interval);
+      const a = await res.json();
+      if (!Array.isArray(a)) return clearInterval(interval);
+      setAudios(a);
+      if (!a.some((x) => x.status === 'PENDING')) clearInterval(interval);
     }, 5000);
     return () => clearInterval(interval);
   }, [token]);
+
+  async function handleDelete(audio) {
+    if (!window.confirm(`Remover a gravação de ${formatDate(audio.createdAt)}?`)) return;
+    setDeletingId(audio.id);
+    const res = await apiFetch(`/audios/${audio.id}`, { token, method: 'DELETE' });
+    setDeletingId(null);
+    if (res && (res.ok || res.status === 204)) {
+      setAudios((prev) => prev.filter((a) => a.id !== audio.id));
+    }
+  }
 
   function togglePlay(audio) {
     if (playingId === audio.id) {
@@ -132,9 +145,20 @@ export default function AudioList({ token }) {
               userName={user?.name}
               isPlaying={playingId === a.id}
               onTogglePlay={togglePlay}
+              onDelete={handleDelete}
+              isDeleting={deletingId === a.id}
+              onOpen={setOpenAudio}
             />
           ))}
         </div>
+      )}
+
+      {openAudio && (
+        <TranscriptionModal
+          audio={openAudio}
+          token={token}
+          onClose={() => setOpenAudio(null)}
+        />
       )}
     </div>
   );
@@ -244,6 +268,17 @@ const styles = {
     cursor: 'pointer',
     flexShrink: 0,
     fontWeight: 500,
+  },
+  deleteBtn: {
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    fontSize: 16,
+    padding: '4px 6px',
+    borderRadius: 6,
+    opacity: 0.5,
+    flexShrink: 0,
+    transition: 'opacity 0.15s',
   },
   spinner: {
     display: 'inline-block',

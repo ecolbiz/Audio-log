@@ -1,12 +1,11 @@
 import Constants from 'expo-constants';
 
-function getBaseUrl() {
+function getHost() {
   const hostUri = Constants.expoConfig?.hostUri;
-  if (hostUri) {
-    const host = hostUri.split(':')[0];
-    return `http://${host}:3000/api`;
-  }
-  return 'http://localhost:3000/api';
+  if (hostUri) return hostUri.split(':')[0];
+  return 'localhost';
 }
 
-export const BASE_URL = getBaseUrl();
+const host = getHost();
+export const BASE_URL = `http://${host}:3000/api`;
+export const SERVER_URL = `http://${host}:3000`;

@@ -1,6 +1,210 @@
 import { useEffect, useState } from 'react';
+import { apiFetch } from '../lib/api';
 
-const API = 'http://localhost:3000/api';
+const FIELD_TYPES = ['String', 'Integer', 'Decimal', 'Date', 'Time', 'Datetime'];
+const TYPE_HINTS = {
+  String: 'texto livre',
+  Integer: 'número inteiro',
+  Decimal: 'número decimal',
+  Date: 'DD/MM/AAAA',
+  Time: 'HH:MM',
+  Datetime: 'DD/MM/AAAA HH:MM',
+};
+
+function emptyKeyword() {
+  return { name: '', type: 'String' };
+}
+
+function KeywordEditor({ keywords, onChange }) {
+  function update(i, field, value) {
+    const next = keywords.map((k, j) => j === i ? { ...k, [field]: value } : k);
+    onChange(next);
+  }
+  function remove(i) { onChange(keywords.filter((_, j) => j !== i)); }
+  function add() { onChange([...keywords, emptyKeyword()]); }
+
+  return (
+    <div style={kwStyles.container}>
+      {keywords.length === 0 && (
+        <p style={{ margin: 0, fontSize: 13, color: 'var(--text)' }}>Nenhum campo. Clique em "+ Campo" para adicionar.</p>
+      )}
+      {keywords.map((kw, i) => (
+        <div key={i} style={kwStyles.row}>
+          <input
+            style={{ ...kwStyles.nameInput }}
+            value={kw.name}
+            onChange={(e) => update(i, 'name', e.target.value.toUpperCase())}
+            placeholder="NOME"
+          />
+          <select
+            style={kwStyles.typeSelect}
+            value={kw.type}
+            onChange={(e) => update(i, 'type', e.target.value)}
+          >
+            {FIELD_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+          {kw.type === 'Decimal' && (
+            <input
+              style={kwStyles.decimalsInput}
+              type="number"
+              min={0}
+              max={10}
+              value={kw.decimals ?? 2}
+              onChange={(e) => update(i, 'decimals', Number(e.target.value))}
+              title="Casas decimais"
+            />
+          )}
+          <span style={kwStyles.hint}>{TYPE_HINTS[kw.type]}</span>
+          <button style={kwStyles.removeBtn} onClick={() => remove(i)} title="Remover">✕</button>
+        </div>
+      ))}
+      <button style={kwStyles.addBtn} type="button" onClick={add}>+ Campo</button>
+    </div>
+  );
+}
+
+const kwStyles = {
+  container: { display: 'flex', flexDirection: 'column', gap: 6 },
+  row: { display: 'flex', alignItems: 'center', gap: 8 },
+  nameInput: {
+    width: 110, padding: '6px 10px', borderRadius: 6,
+    border: '1px solid var(--border)', background: 'var(--bg)',
+    color: 'var(--text-h)', fontSize: 13, fontFamily: 'var(--mono)',
+    textTransform: 'uppercase',
+  },
+  typeSelect: {
+    padding: '6px 8px', borderRadius: 6, border: '1px solid var(--border)',
+    background: 'var(--bg)', color: 'var(--text-h)', fontSize: 13, cursor: 'pointer',
+  },
+  decimalsInput: {
+    width: 52, padding: '6px 8px', borderRadius: 6,
+    border: '1px solid var(--border)', background: 'var(--bg)',
+    color: 'var(--text-h)', fontSize: 13, textAlign: 'center',
+  },
+  hint: { fontSize: 11, color: 'var(--text)', flex: 1 },
+  removeBtn: {
+    background: 'none', border: 'none', cursor: 'pointer',
+    color: '#ef4444', fontSize: 13, padding: '2px 6px',
+  },
+  addBtn: {
+    alignSelf: 'flex-start', background: 'none', border: '1px dashed var(--border)',
+    borderRadius: 6, padding: '5px 12px', cursor: 'pointer',
+    color: 'var(--text)', fontSize: 12, marginTop: 2,
+  },
+};
+
+function KeywordSetsSection({ token }) {
+  const [sets, setSets] = useState([]);
+  const [newName, setNewName] = useState('');
+  const [newKeywords, setNewKeywords] = useState([emptyKeyword()]);
+  const [editingId, setEditingId] = useState(null);
+  const [editName, setEditName] = useState('');
+  const [editKeywords, setEditKeywords] = useState([]);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    apiFetch('/keyword-sets', { token }).then((r) => r?.json()).then((d) => d && setSets(d));
+  }, [token]);
+
+  async function handleCreate(e) {
+    e.preventDefault();
+    const valid = newKeywords.filter((k) => k.name.trim());
+    if (!newName || valid.length === 0) return;
+    setSaving(true);
+    const res = await apiFetch('/keyword-sets', {
+      token, method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: newName, keywords: valid }),
+    });
+    if (res) {
+      const created = await res.json();
+      setSets((s) => [...s, created]);
+      setNewName('');
+      setNewKeywords([emptyKeyword()]);
+    }
+    setSaving(false);
+  }
+
+  function startEdit(s) {
+    setEditingId(s.id);
+    setEditName(s.name);
+    setEditKeywords(s.keywords.map((k) => ({ ...k })));
+  }
+
+  async function handleUpdate(id) {
+    const valid = editKeywords.filter((k) => k.name.trim());
+    if (!editName || valid.length === 0) return;
+    setSaving(true);
+    const res = await apiFetch(`/keyword-sets/${id}`, {
+      token, method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: editName, keywords: valid }),
+    });
+    if (res) {
+      const updated = await res.json();
+      setSets((s) => s.map((x) => x.id === id ? updated : x));
+      setEditingId(null);
+    }
+    setSaving(false);
+  }
+
+  async function handleDelete(id) {
+    if (!window.confirm('Remover este conjunto?')) return;
+    const res = await apiFetch(`/keyword-sets/${id}`, { token, method: 'DELETE' });
+    if (res) setSets((s) => s.filter((x) => x.id !== id));
+  }
+
+  return (
+    <div style={styles.block}>
+      <span style={styles.blockTitle}>Conjuntos de palavras-chave</span>
+
+      <div style={styles.setsList}>
+        {sets.length === 0 && <p style={styles.hint}>Nenhum conjunto criado ainda.</p>}
+        {sets.map((s) => (
+          <div key={s.id} style={styles.setCard}>
+            {editingId === s.id ? (
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <input style={styles.input} value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="Nome do conjunto" />
+                <KeywordEditor keywords={editKeywords} onChange={setEditKeywords} />
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button style={styles.saveSmallBtn} onClick={() => handleUpdate(s.id)} disabled={saving}>Salvar</button>
+                  <button style={styles.cancelSmallBtn} onClick={() => setEditingId(null)}>Cancelar</button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div style={styles.setInfo}>
+                  <span style={styles.setName}>{s.name}</span>
+                  <div style={styles.kwList}>
+                    {s.keywords.map((k) => (
+                      <span key={k.name} style={styles.kwBadge} title={`${k.type}${k.type === 'Decimal' ? ` (${k.decimals} dec.)` : ''}`}>
+                        {k.name}
+                        <span style={styles.kwType}>{k.type}</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                  <button style={styles.editSmallBtn} onClick={() => startEdit(s)}>Editar</button>
+                  <button style={styles.deleteSmallBtn} onClick={() => handleDelete(s.id)}>✕</button>
+                </div>
+              </>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <form onSubmit={handleCreate} style={styles.createForm}>
+        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-h)' }}>Novo conjunto</span>
+        <input style={styles.input} value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Nome (ex: Suporte técnico)" />
+        <KeywordEditor keywords={newKeywords} onChange={setNewKeywords} />
+        <button style={styles.createBtn} type="submit" disabled={saving || !newName}>
+          + Criar conjunto
+        </button>
+      </form>
+    </div>
+  );
+}
 
 function ProviderCard({ id, label, description, active, keySet, onSelect }) {
   return (
@@ -39,21 +243,21 @@ export default function Settings({ token }) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
-
   useEffect(() => {
-    fetch(`${API}/settings`, { headers }).then((r) => r.json()).then(setSettings);
+    apiFetch('/settings', { token }).then((r) => r?.json()).then((d) => d && setSettings(d));
   }, [token]);
 
   async function handleSelectProvider(provider) {
     if (settings?.provider === provider || saving) return;
     setSaving(true);
     setSaved(false);
-    const res = await fetch(`${API}/settings/provider`, {
+    const res = await apiFetch('/settings/provider', {
+      token,
       method: 'PATCH',
-      headers,
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ provider }),
     });
+    if (!res) return;
     const data = await res.json();
     setSettings((s) => ({ ...s, provider: data.provider }));
     setSaving(false);
@@ -65,7 +269,8 @@ export default function Settings({ token }) {
     setCreditsLoading(true);
     setCreditsError('');
     setCredits(null);
-    const res = await fetch(`${API}/settings/openai-credits`, { headers });
+    const res = await apiFetch('/settings/openai-credits', { token });
+    if (!res) return;
     const data = await res.json();
     if (!res.ok) {
       setCreditsError(data.error || 'Erro desconhecido.');
@@ -143,6 +348,8 @@ export default function Settings({ token }) {
             </p>
           )}
         </div>
+
+        <KeywordSetsSection token={token} />
 
         <div style={styles.block}>
           <span style={styles.blockTitle}>Chaves de API</span>
@@ -322,6 +529,116 @@ const styles = {
     margin: 0,
     fontSize: 13,
     color: 'var(--text)',
+  },
+  setsList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 8,
+  },
+  setCard: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '12px 14px',
+    borderRadius: 10,
+    border: '1px solid var(--border)',
+    gap: 12,
+  },
+  setInfo: {
+    flex: 1,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 6,
+  },
+  setName: {
+    fontWeight: 600,
+    fontSize: 14,
+    color: 'var(--text-h)',
+  },
+  kwList: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: 4,
+  },
+  kwBadge: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 4,
+    fontSize: 11,
+    fontWeight: 600,
+    padding: '2px 8px',
+    borderRadius: 20,
+    background: 'var(--accent-bg)',
+    color: 'var(--accent)',
+    fontFamily: 'var(--mono)',
+  },
+  kwType: {
+    fontSize: 10,
+    fontWeight: 400,
+    opacity: 0.7,
+  },
+  createForm: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 10,
+    padding: '14px 16px',
+    border: '1px dashed var(--border)',
+    borderRadius: 10,
+  },
+  input: {
+    padding: '8px 12px',
+    borderRadius: 8,
+    border: '1px solid var(--border)',
+    fontSize: 13,
+    background: 'var(--bg)',
+    color: 'var(--text-h)',
+  },
+  createBtn: {
+    padding: '8px 16px',
+    borderRadius: 8,
+    border: 'none',
+    background: 'var(--accent)',
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: 600,
+    cursor: 'pointer',
+    alignSelf: 'flex-start',
+  },
+  editSmallBtn: {
+    padding: '4px 10px',
+    borderRadius: 6,
+    border: '1px solid var(--border)',
+    background: 'none',
+    color: 'var(--text)',
+    fontSize: 12,
+    cursor: 'pointer',
+  },
+  saveSmallBtn: {
+    padding: '4px 10px',
+    borderRadius: 6,
+    border: 'none',
+    background: 'var(--accent)',
+    color: '#fff',
+    fontSize: 12,
+    cursor: 'pointer',
+  },
+  cancelSmallBtn: {
+    padding: '4px 10px',
+    borderRadius: 6,
+    border: '1px solid var(--border)',
+    background: 'none',
+    color: 'var(--text)',
+    fontSize: 12,
+    cursor: 'pointer',
+  },
+  deleteSmallBtn: {
+    padding: '4px 8px',
+    borderRadius: 6,
+    border: '1px solid rgba(239,68,68,0.3)',
+    background: 'none',
+    color: '#ef4444',
+    fontSize: 12,
+    cursor: 'pointer',
   },
   code: {
     fontFamily: 'var(--mono)',

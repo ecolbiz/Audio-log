@@ -1,4 +1,5 @@
 import { Audio } from 'expo-av';
+import { router } from 'expo-router';
 import { useState } from 'react';
 import {
   ActivityIndicator,
@@ -9,11 +10,16 @@ import {
   View,
 } from 'react-native';
 import { BASE_URL } from '@/lib/api';
-import { getToken } from '@/lib/auth';
+import { clearToken, getToken } from '@/lib/auth';
 
 export default function RecordScreen() {
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [uploading, setUploading] = useState(false);
+
+  async function handleLogout() {
+    await clearToken();
+    router.replace('/login');
+  }
 
   async function startRecording() {
     const { granted } = await Audio.requestPermissionsAsync();
@@ -58,10 +64,16 @@ export default function RecordScreen() {
         body: form,
       });
 
-      if (!res.ok) throw new Error('Falha no upload');
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 401) {
+        await clearToken();
+        router.replace('/login');
+        return;
+      }
+      if (!res.ok) throw new Error(data?.error || `Erro ${res.status}`);
       Alert.alert('Salvo!', 'Áudio enviado com sucesso.');
-    } catch {
-      Alert.alert('Erro', 'Não foi possível salvar o áudio. Tente novamente.');
+    } catch (err: any) {
+      Alert.alert('Erro', err?.message || 'Não foi possível salvar o áudio.');
     } finally {
       setUploading(false);
     }
@@ -69,7 +81,12 @@ export default function RecordScreen() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Audio Log</Text>
+      <View style={styles.topBar}>
+        <Text style={styles.title}>Audio Log</Text>
+        <TouchableOpacity onPress={handleLogout} style={styles.logoutBtn}>
+          <Text style={styles.logoutText}>Sair</Text>
+        </TouchableOpacity>
+      </View>
 
       {recording && (
         <View style={styles.recordingIndicator}>
@@ -99,15 +116,33 @@ export default function RecordScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#fff',
     gap: 32,
+    paddingTop: 60,
+  },
+  topBar: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 24,
   },
   title: {
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: 'bold',
     color: '#111',
+  },
+  logoutBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  logoutText: {
+    fontSize: 14,
+    color: '#666',
   },
   recordingIndicator: {
     flexDirection: 'row',
