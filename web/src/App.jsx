@@ -1,31 +1,36 @@
 import { useState } from 'react';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import Nav from './components/Nav';
+import AudioList from './pages/AudioList';
+import Login from './pages/Login';
+import Settings from './pages/Settings';
+import Transcripts from './pages/Transcripts';
 
 export default function App() {
-  const [token, setToken] = useState('');
-  const [q, setQ] = useState('');
-  const [items, setItems] = useState([]);
+  const [token, setToken] = useState(() => localStorage.getItem('token') || '');
 
-  const search = async () => {
-    const res = await fetch(`http://localhost:3000/api/admin/audios?q=${encodeURIComponent(q)}`, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    setItems(await res.json());
-  };
+  function handleLogout() {
+    setToken('');
+  }
 
   return (
-    <div style={{ padding: 24 }}>
-      <h1>Painel de gravações</h1>
-      <input placeholder="JWT" value={token} onChange={(e) => setToken(e.target.value)} />
-      <input placeholder="Buscar" value={q} onChange={(e) => setQ(e.target.value)} />
-      <button onClick={search}>Pesquisar</button>
-      <table>
-        <thead><tr><th>Data</th><th>Cliente</th><th>Meio</th><th>Assunto</th></tr></thead>
-        <tbody>
-          {items.map((a) => (
-            <tr key={a.id}><td>{a.extractedDate}</td><td>{a.extractedClient}</td><td>{a.extractedMedium}</td><td>{a.extractedSubject}</td></tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <BrowserRouter>
+      {token ? (
+        <>
+          <Nav onLogout={handleLogout} />
+          <Routes>
+            <Route path="/recordings" element={<AudioList token={token} />} />
+            <Route path="/transcripts" element={<Transcripts token={token} />} />
+            <Route path="/settings" element={<Settings token={token} />} />
+            <Route path="*" element={<Navigate to="/recordings" replace />} />
+          </Routes>
+        </>
+      ) : (
+        <Routes>
+          <Route path="/login" element={<Login onLogin={setToken} />} />
+          <Route path="*" element={<Navigate to="/login" replace />} />
+        </Routes>
+      )}
+    </BrowserRouter>
   );
 }

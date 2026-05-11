@@ -9,6 +9,15 @@ exports.register = async (req, res) => {
   res.status(201).json({ id: user.id, email: user.email, name: user.name });
 };
 
+exports.me = async (req, res) => {
+  const user = await prisma.user.findUnique({
+    where: { id: req.user.id },
+    select: { id: true, name: true, email: true, role: true },
+  });
+  if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
+  res.json(user);
+};
+
 exports.login = async (req, res) => {
   const { email, password } = req.body;
   const user = await prisma.user.findUnique({ where: { email } });

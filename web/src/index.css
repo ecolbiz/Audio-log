@@ -54,6 +54,10 @@ body {
   margin: 0;
 }
 
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 #root {
   width: 1126px;
   max-width: 100%;

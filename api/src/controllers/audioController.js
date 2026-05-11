@@ -15,7 +15,8 @@ exports.uploadAudio = async (req, res) => {
       const transcriptRaw = await transcribeAudio(req.file.path);
       const structured = parseStructuredText(transcriptRaw);
       await prisma.audio.update({ where: { id: audio.id }, data: { ...structured, transcriptRaw, status: 'TRANSCRIBED' } });
-    } catch {
+    } catch (err) {
+      console.error('[transcription error]', err?.message ?? err);
       await prisma.audio.update({ where: { id: audio.id }, data: { status: 'FAILED' } });
     }
   })();
