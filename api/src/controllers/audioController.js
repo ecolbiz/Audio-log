@@ -30,7 +30,11 @@ exports.uploadAudio = async (req, res) => {
 };
 
 exports.listMine = async (req, res) => {
-  const audios = await prisma.audio.findMany({ where: { userId: req.user.id }, orderBy: { createdAt: 'desc' } });
+  const audios = await prisma.audio.findMany({
+    where: { userId: req.user.id },
+    orderBy: { createdAt: 'desc' },
+    include: { transcription: { select: { auditedAt: true } } },
+  });
   res.json(audios);
 };
 

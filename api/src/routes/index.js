@@ -29,6 +29,9 @@ router.delete('/keyword-sets/:id', auth, keywordSetController.remove);
 router.get('/audios/:id/transcription', auth, transcriptionController.get);
 router.post('/audios/:id/transcription/apply', auth, transcriptionController.apply);
 router.patch('/audios/:id/transcription', auth, transcriptionController.update);
+router.post('/audios/:id/transcription/audit', auth, transcriptionController.audit);
+router.delete('/audios/:id/transcription/audit', auth, transcriptionController.unaudit);
+router.post('/audios/:id/transcription/normalize', auth, transcriptionController.normalize);
 
 router.get('/settings', auth, settingsController.getSettings);
 router.patch('/settings/provider', auth, settingsController.updateProvider);

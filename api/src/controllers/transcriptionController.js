@@ -1,4 +1,10 @@
 const prisma = require('../utils/prisma');
+const { normalizeFields } = require('../services/normalizationService');
+
+const INCLUDE = {
+  keywordSet: true,
+  auditedBy: { select: { name: true } },
+};
 
 function parseWithKeywords(text, keywordDefs) {
   const result = {};
@@ -22,7 +28,7 @@ exports.get = async (req, res) => {
   const { id } = req.params;
   const audio = await prisma.audio.findUnique({
     where: { id },
-    include: { transcription: { include: { keywordSet: true } } },
+    include: { transcription: { include: INCLUDE } },
   });
   if (!audio || audio.userId !== req.user.id) {
     return res.status(404).json({ error: 'Áudio não encontrado.' });
@@ -42,6 +48,10 @@ exports.apply = async (req, res) => {
     return res.status(404).json({ error: 'Áudio não encontrado.' });
   }
 
+  if (audio.transcription?.auditedAt) {
+    return res.status(400).json({ error: 'Transcrição já auditada.' });
+  }
+
   const fullText = audio.transcription?.fullText || audio.transcriptRaw || '';
   let fields = {};
 
@@ -54,10 +64,65 @@ exports.apply = async (req, res) => {
     where: { audioId: id },
     create: { audioId: id, fullText, fields, keywordSetId: keywordSetId || null },
     update: { fields, keywordSetId: keywordSetId || null },
-    include: { keywordSet: true },
+    include: INCLUDE,
   });
 
   res.json(transcription);
+};
+
+exports.audit = async (req, res) => {
+  const { id } = req.params;
+  const audio = await prisma.audio.findUnique({ where: { id } });
+  if (!audio || audio.userId !== req.user.id) {
+    return res.status(404).json({ error: 'Áudio não encontrado.' });
+  }
+  const transcription = await prisma.transcription.update({
+    where: { audioId: id },
+    data: { auditedAt: new Date(), auditedByUserId: req.user.id },
+    include: INCLUDE,
+  });
+  res.json(transcription);
+};
+
+exports.unaudit = async (req, res) => {
+  const { id } = req.params;
+  const audio = await prisma.audio.findUnique({ where: { id } });
+  if (!audio || audio.userId !== req.user.id) {
+    return res.status(404).json({ error: 'Áudio não encontrado.' });
+  }
+  const transcription = await prisma.transcription.update({
+    where: { audioId: id },
+    data: { auditedAt: null, auditedByUserId: null },
+    include: INCLUDE,
+  });
+  res.json(transcription);
+};
+
+exports.normalize = async (req, res) => {
+  const { id } = req.params;
+  const audio = await prisma.audio.findUnique({
+    where: { id },
+    include: { transcription: { include: { keywordSet: true } } },
+  });
+  if (!audio || audio.userId !== req.user.id) {
+    return res.status(404).json({ error: 'Áudio não encontrado.' });
+  }
+  const t = audio.transcription;
+  if (!t) return res.status(400).json({ error: 'Sem transcrição.' });
+  if (t.auditedAt) return res.status(400).json({ error: 'Transcrição já auditada.' });
+
+  const keywords =
+    t.keywordSet?.keywords ||
+    Object.keys(t.fields || {}).map((k) => ({ name: k, type: 'String' }));
+
+  const normalized = await normalizeFields(t.fullText, t.fields || {}, keywords);
+
+  const updated = await prisma.transcription.update({
+    where: { audioId: id },
+    data: { fields: normalized },
+    include: INCLUDE,
+  });
+  res.json(updated);
 };
 
 exports.update = async (req, res) => {
@@ -81,7 +146,7 @@ exports.update = async (req, res) => {
       ...(fields !== undefined && { fields }),
       ...(keywordSetId !== undefined && { keywordSetId: keywordSetId || null }),
     },
-    include: { keywordSet: true },
+    include: INCLUDE,
   });
 
   res.json(transcription);

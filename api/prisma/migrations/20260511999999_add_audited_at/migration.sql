@@ -1,0 +1,1 @@
+ALTER TABLE "Transcription" ADD COLUMN IF NOT EXISTS "auditedAt" TIMESTAMP(3);

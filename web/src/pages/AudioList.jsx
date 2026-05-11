@@ -39,6 +39,12 @@ function AudioCard({ audio, userName, isPlaying, onTogglePlay, onDelete, isDelet
           {st.text}
         </span>
 
+        {audio.transcription?.auditedAt && (
+          <span style={{ ...styles.badge, color: '#8b5cf6', borderColor: '#8b5cf6' }}>
+            Auditado
+          </span>
+        )}
+
         {audio.status === 'TRANSCRIBED' && (
           <button style={styles.expandBtn} onClick={() => onOpen(audio)}>
             Abrir

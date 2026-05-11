@@ -9,6 +9,8 @@ export default function TranscriptionModal({ audio, token, onClose }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [applying, setApplying] = useState(false);
+  const [normalizing, setNormalizing] = useState(false);
+  const [auditing, setAuditing] = useState(false);
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
@@ -41,6 +43,34 @@ export default function TranscriptionModal({ audio, token, onClose }) {
       setFields(t.fields || {});
     }
     setApplying(false);
+  }
+
+  async function handleNormalize() {
+    setNormalizing(true);
+    const res = await apiFetch(`/audios/${audio.id}/transcription/normalize`, {
+      token,
+      method: 'POST',
+    });
+    if (res && res.ok) {
+      const t = await res.json();
+      setTranscription(t);
+      setFields(t.fields || {});
+    }
+    setNormalizing(false);
+  }
+
+  async function handleAudit() {
+    setAuditing(true);
+    const isAudited = !!transcription?.auditedAt;
+    const res = await apiFetch(`/audios/${audio.id}/transcription/audit`, {
+      token,
+      method: isAudited ? 'DELETE' : 'POST',
+    });
+    if (res && res.ok) {
+      const t = await res.json();
+      setTranscription(t);
+    }
+    setAuditing(false);
   }
 
   async function handleSave() {
@@ -76,10 +106,10 @@ export default function TranscriptionModal({ audio, token, onClose }) {
             <section style={styles.section}>
               <label style={styles.label}>Conjunto de palavras-chave</label>
               <select
-                style={styles.select}
+                style={{ ...styles.select, ...(transcription?.auditedAt ? styles.fieldInputLocked : {}) }}
                 value={selectedSetId}
                 onChange={(e) => handleApply(e.target.value)}
-                disabled={applying}
+                disabled={applying || !!transcription?.auditedAt}
               >
                 <option value="">— Sem conjunto —</option>
                 {keywordSets.map((s) => (
@@ -104,9 +134,10 @@ export default function TranscriptionModal({ audio, token, onClose }) {
                           <span style={styles.fieldType}>{type}</span>
                         </div>
                         <input
-                          style={styles.fieldInput}
+                          style={{ ...styles.fieldInput, ...(transcription?.auditedAt ? styles.fieldInputLocked : {}) }}
                           value={fields[name] || ''}
                           placeholder={placeholder}
+                          readOnly={!!transcription?.auditedAt}
                           onChange={(e) => setFields((f) => ({ ...f, [name]: e.target.value }))}
                         />
                       </div>
@@ -126,14 +157,43 @@ export default function TranscriptionModal({ audio, token, onClose }) {
         )}
 
         <div style={styles.footer}>
-          <button style={styles.cancelBtn} onClick={onClose}>Fechar</button>
-          <button
-            style={{ ...styles.saveBtn, ...(saving ? styles.saveBtnDisabled : {}) }}
-            onClick={handleSave}
-            disabled={saving || loading}
-          >
-            {saving ? 'Salvando...' : saved ? '✓ Salvo' : 'Salvar'}
-          </button>
+          <div style={styles.footerLeft}>
+            {transcription?.auditedAt ? (
+              <span style={styles.auditedLabel}>
+                ✓ Auditado em {new Date(transcription.auditedAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                {transcription.auditedBy?.name ? ` · ${transcription.auditedBy.name}` : ''}
+              </span>
+            ) : (
+              <button
+                style={{ ...styles.normalizeBtn, ...(normalizing ? styles.saveBtnDisabled : {}) }}
+                onClick={handleNormalize}
+                disabled={normalizing || loading}
+              >
+                {normalizing ? 'Normalizando...' : 'Normalizar campos'}
+              </button>
+            )}
+          </div>
+          <div style={styles.footerRight}>
+            <button style={styles.cancelBtn} onClick={onClose}>Fechar</button>
+            <button
+              style={{
+                ...styles.auditBtn,
+                ...(transcription?.auditedAt ? styles.auditBtnActive : {}),
+                ...(auditing ? styles.saveBtnDisabled : {}),
+              }}
+              onClick={handleAudit}
+              disabled={auditing || loading}
+            >
+              {auditing ? '...' : transcription?.auditedAt ? 'Remover Audit' : 'Audit Feito'}
+            </button>
+            <button
+              style={{ ...styles.saveBtn, ...(saving ? styles.saveBtnDisabled : {}) }}
+              onClick={handleSave}
+              disabled={saving || loading || !!transcription?.auditedAt}
+            >
+              {saving ? 'Salvando...' : saved ? '✓ Salvo' : 'Salvar'}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -252,6 +312,11 @@ const styles = {
     width: '100%',
     boxSizing: 'border-box',
   },
+  fieldInputLocked: {
+    opacity: 0.6,
+    cursor: 'not-allowed',
+    background: 'var(--code-bg)',
+  },
   fullText: {
     padding: '14px 16px',
     background: 'var(--code-bg)',
@@ -266,10 +331,47 @@ const styles = {
   },
   footer: {
     display: 'flex',
-    justifyContent: 'flex-end',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 8,
     padding: '16px 24px',
     borderTop: '1px solid var(--border)',
+  },
+  footerLeft: {
+    display: 'flex',
+    alignItems: 'center',
+  },
+  footerRight: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+  },
+  auditedLabel: {
+    fontSize: 12,
+    color: '#8b5cf6',
+    fontWeight: 600,
+  },
+  normalizeBtn: {
+    padding: '10px 20px',
+    borderRadius: 8,
+    border: '1px solid var(--accent)',
+    background: 'none',
+    color: 'var(--accent)',
+    fontSize: 14,
+    cursor: 'pointer',
+  },
+  auditBtn: {
+    padding: '10px 20px',
+    borderRadius: 8,
+    border: '1px solid #8b5cf6',
+    background: 'none',
+    color: '#8b5cf6',
+    fontSize: 14,
+    cursor: 'pointer',
+  },
+  auditBtnActive: {
+    background: '#8b5cf6',
+    color: '#fff',
   },
   cancelBtn: {
     padding: '10px 20px',
