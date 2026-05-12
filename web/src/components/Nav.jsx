@@ -1,6 +1,6 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 
-export default function Nav({ onLogout }) {
+export default function Nav({ onLogout, user }) {
   const navigate = useNavigate();
 
   function handleLogout() {
@@ -22,6 +22,11 @@ export default function Nav({ onLogout }) {
         <NavLink to="/settings" style={({ isActive }) => ({ ...styles.link, ...(isActive ? styles.active : {}) })}>
           Configurações
         </NavLink>
+        {user?.role === 'ADMIN' && (
+          <NavLink to="/users" style={({ isActive }) => ({ ...styles.link, ...(isActive ? styles.active : {}) })}>
+            Usuários
+          </NavLink>
+        )}
       </div>
       <button style={styles.logout} onClick={handleLogout}>Sair</button>
     </nav>

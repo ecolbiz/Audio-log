@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { apiFetch, API } from '../lib/api';
+import { apiFetch } from '../lib/api';
 import TranscriptionModal from '../components/TranscriptionModal';
 
 function formatDate(iso) {
@@ -15,9 +15,9 @@ function statusLabel(status) {
   return { text: 'Processando', color: '#f59e0b' };
 }
 
-function AudioCard({ audio, userName, isPlaying, onTogglePlay, onDelete, isDeleting, onOpen }) {
-  const [expanded, setExpanded] = useState(false);
+function AudioCard({ audio, userName, isPlaying, onTogglePlay, onDelete, isDeleting, onHide, isHiding, onOpen }) {
   const st = statusLabel(audio.status);
+  const isAudited = !!audio.transcription?.auditedAt;
 
   return (
     <div style={styles.card}>
@@ -39,7 +39,7 @@ function AudioCard({ audio, userName, isPlaying, onTogglePlay, onDelete, isDelet
           {st.text}
         </span>
 
-        {audio.transcription?.auditedAt && (
+        {isAudited && (
           <span style={{ ...styles.badge, color: '#8b5cf6', borderColor: '#8b5cf6' }}>
             Auditado
           </span>
@@ -55,35 +55,45 @@ function AudioCard({ audio, userName, isPlaying, onTogglePlay, onDelete, isDelet
           <span style={styles.spinner} title="Aguardando transcrição..." />
         )}
 
-        <button
-          style={styles.deleteBtn}
-          onClick={() => onDelete(audio)}
-          disabled={isDeleting}
-          title="Remover gravação"
-        >
-          {isDeleting ? '...' : '🗑'}
-        </button>
+        {isAudited ? (
+          <button
+            style={styles.hideBtn}
+            onClick={() => onHide(audio)}
+            disabled={isHiding}
+            title="Ocultar gravação auditada"
+          >
+            {isHiding ? '...' : 'Ocultar'}
+          </button>
+        ) : (
+          <button
+            style={styles.deleteBtn}
+            onClick={() => onDelete(audio)}
+            disabled={isDeleting}
+            title="Remover gravação"
+          >
+            {isDeleting ? '...' : '🗑'}
+          </button>
+        )}
       </div>
 
     </div>
   );
 }
 
-export default function AudioList({ token }) {
-  const [user, setUser] = useState(null);
+export default function AudioList({ token, user }) {
   const [audios, setAudios] = useState([]);
   const [loading, setLoading] = useState(true);
   const [playingId, setPlayingId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
+  const [hidingId, setHidingId] = useState(null);
+  const [showHidden, setShowHidden] = useState(false);
   const [openAudio, setOpenAudio] = useState(null);
   const audioRef = useRef(null);
 
-  async function fetchData() {
-    const res = await apiFetch('/auth/me', { token });
-    const resAudios = await apiFetch('/audios/mine', { token });
-    if (!res || !resAudios) return;
-    const [u, a] = await Promise.all([res.json(), resAudios.json()]);
-    setUser(u);
+  async function fetchData(includeHidden = showHidden) {
+    const res = await apiFetch(`/audios/mine${includeHidden ? '?showHidden=true' : ''}`, { token });
+    if (!res) return;
+    const a = await res.json();
     setAudios(Array.isArray(a) ? a : []);
     setLoading(false);
   }
@@ -91,7 +101,7 @@ export default function AudioList({ token }) {
   useEffect(() => {
     fetchData();
     const interval = setInterval(async () => {
-      const res = await apiFetch('/audios/mine', { token });
+      const res = await apiFetch(`/audios/mine${showHidden ? '?showHidden=true' : ''}`, { token });
       if (!res) return clearInterval(interval);
       const a = await res.json();
       if (!Array.isArray(a)) return clearInterval(interval);
@@ -100,6 +110,16 @@ export default function AudioList({ token }) {
     }, 5000);
     return () => clearInterval(interval);
   }, [token]);
+
+  async function handleHide(audio) {
+    if (!window.confirm(`Ocultar a gravação de ${formatDate(audio.createdAt)}? Ela não será removida, apenas ocultada da lista.`)) return;
+    setHidingId(audio.id);
+    const res = await apiFetch(`/audios/${audio.id}/hide`, { token, method: 'PATCH' });
+    setHidingId(null);
+    if (res && res.ok) {
+      setAudios((prev) => prev.filter((a) => a.id !== audio.id));
+    }
+  }
 
   async function handleDelete(audio) {
     if (!window.confirm(`Remover a gravação de ${formatDate(audio.createdAt)}?`)) return;
@@ -136,7 +156,13 @@ export default function AudioList({ token }) {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <span style={styles.count}>{audios.length} {audios.length === 1 ? 'gravação' : 'gravações'}</span>
-          <button style={styles.refreshBtn} onClick={fetchData}>↻ Atualizar</button>
+          <button
+            style={{ ...styles.refreshBtn, ...(showHidden ? { color: 'var(--accent)', borderColor: 'var(--accent)' } : {}) }}
+            onClick={() => { const next = !showHidden; setShowHidden(next); fetchData(next); }}
+          >
+            {showHidden ? '● Ocultas visíveis' : '○ Mostrar ocultas'}
+          </button>
+          <button style={styles.refreshBtn} onClick={() => fetchData()}>↻ Atualizar</button>
         </div>
       </div>
 
@@ -153,6 +179,8 @@ export default function AudioList({ token }) {
               onTogglePlay={togglePlay}
               onDelete={handleDelete}
               isDeleting={deletingId === a.id}
+              onHide={handleHide}
+              isHiding={hidingId === a.id}
               onOpen={setOpenAudio}
             />
           ))}
@@ -163,6 +191,7 @@ export default function AudioList({ token }) {
         <TranscriptionModal
           audio={openAudio}
           token={token}
+          user={user}
           onClose={() => setOpenAudio(null)}
         />
       )}
@@ -285,6 +314,16 @@ const styles = {
     opacity: 0.5,
     flexShrink: 0,
     transition: 'opacity 0.15s',
+  },
+  hideBtn: {
+    background: 'none',
+    border: '1px solid var(--border)',
+    cursor: 'pointer',
+    fontSize: 12,
+    padding: '4px 10px',
+    borderRadius: 6,
+    color: 'var(--text)',
+    flexShrink: 0,
   },
   spinner: {
     display: 'inline-block',

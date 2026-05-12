@@ -1,15 +1,120 @@
 import { useEffect, useState } from 'react';
 import { apiFetch } from '../lib/api';
 
-const FIELD_TYPES = ['String', 'Integer', 'Decimal', 'Date', 'Time', 'Datetime'];
+const FIELD_TYPES = ['String', 'Integer', 'Decimal', 'Date', 'Time', 'Datetime', 'Dropdown'];
+const AUTH_TYPES = [
+  { value: 'none', label: 'Sem autenticação' },
+  { value: 'bearer', label: 'Bearer Token' },
+  { value: 'basic', label: 'Basic (usuário/senha)' },
+  { value: 'apikey', label: 'API Key (header)' },
+];
+const HTTP_METHODS = ['POST', 'PUT', 'PATCH'];
+
+function emptyWebhook() {
+  return { url: '', method: 'POST', authType: 'none', authToken: '', authUser: '', authPass: '', authHeader: 'X-API-Key', authKey: '', extraHeaders: '{}', bodyTemplate: '{}' };
+}
+
+function WebhookEditor({ webhook, onChange, keywords }) {
+  const enabled = !!webhook;
+  const w = webhook || emptyWebhook();
+  const fieldTokens = keywords.filter((k) => k.name).map((k) => `{{${k.name}}}`).join(', ');
+  const metaTokens = '{{__audioId__}}, {{__recordedAt__}}, {{__recordedBy__}}, {{__auditedAt__}}, {{__auditedBy__}}';
+  function upd(field, value) { onChange({ ...w, [field]: value }); }
+
+  return (
+    <div style={whStyles.container}>
+      <label style={whStyles.toggleRow}>
+        <input type="checkbox" checked={enabled} onChange={(e) => onChange(e.target.checked ? emptyWebhook() : null)} />
+        <span style={whStyles.toggleLabel}>Enviar para sistema externo ao auditar</span>
+      </label>
+      {enabled && (
+        <div style={whStyles.fields}>
+          <div style={whStyles.row}>
+            <span style={whStyles.label}>URL</span>
+            <input style={whStyles.input} value={w.url} onChange={(e) => upd('url', e.target.value)} placeholder="https://api.sistema.com/endpoint" />
+          </div>
+          <div style={whStyles.row}>
+            <span style={whStyles.label}>Método</span>
+            <select style={whStyles.select} value={w.method} onChange={(e) => upd('method', e.target.value)}>
+              {HTTP_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </div>
+          <div style={whStyles.row}>
+            <span style={whStyles.label}>Autenticação</span>
+            <select style={whStyles.select} value={w.authType} onChange={(e) => upd('authType', e.target.value)}>
+              {AUTH_TYPES.map((a) => <option key={a.value} value={a.value}>{a.label}</option>)}
+            </select>
+          </div>
+          {w.authType === 'bearer' && (
+            <div style={whStyles.row}>
+              <span style={whStyles.label}>Token</span>
+              <input style={whStyles.input} type="password" value={w.authToken} onChange={(e) => upd('authToken', e.target.value)} placeholder="••••••••" />
+            </div>
+          )}
+          {w.authType === 'basic' && (<>
+            <div style={whStyles.row}>
+              <span style={whStyles.label}>Usuário</span>
+              <input style={whStyles.input} value={w.authUser} onChange={(e) => upd('authUser', e.target.value)} />
+            </div>
+            <div style={whStyles.row}>
+              <span style={whStyles.label}>Senha</span>
+              <input style={whStyles.input} type="password" value={w.authPass} onChange={(e) => upd('authPass', e.target.value)} placeholder="••••••••" />
+            </div>
+          </>)}
+          {w.authType === 'apikey' && (<>
+            <div style={whStyles.row}>
+              <span style={whStyles.label}>Header</span>
+              <input style={whStyles.input} value={w.authHeader} onChange={(e) => upd('authHeader', e.target.value)} placeholder="X-API-Key" />
+            </div>
+            <div style={whStyles.row}>
+              <span style={whStyles.label}>Valor</span>
+              <input style={whStyles.input} type="password" value={w.authKey} onChange={(e) => upd('authKey', e.target.value)} placeholder="••••••••" />
+            </div>
+          </>)}
+          <div style={whStyles.rowTop}>
+            <span style={whStyles.label}>Headers extras</span>
+            <textarea style={whStyles.textarea} rows={2} value={w.extraHeaders} onChange={(e) => upd('extraHeaders', e.target.value)} placeholder={'{"X-Custom": "valor"}'} />
+          </div>
+          <div style={whStyles.rowTop}>
+            <span style={whStyles.label}>Body (JSON)</span>
+            <textarea style={whStyles.textarea} rows={5} value={w.bodyTemplate} onChange={(e) => upd('bodyTemplate', e.target.value)} placeholder={'{\n  "campo": "{{NOME_CAMPO}}"\n}'} />
+            <span style={whStyles.hint2}>Campos CPC: <code style={whStyles.code2}>{fieldTokens || '(nenhum ainda)'}</code></span>
+            <span style={whStyles.hint2}>Metadados: <code style={whStyles.code2}>{metaTokens}</code></span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const whStyles = {
+  container: { display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--code-bg)' },
+  toggleRow: { display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none' },
+  toggleLabel: { fontSize: 13, fontWeight: 600, color: 'var(--text-h)' },
+  fields: { display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 },
+  row: { display: 'flex', alignItems: 'center', gap: 8 },
+  rowTop: { display: 'flex', flexDirection: 'column', gap: 4 },
+  label: { fontSize: 12, color: 'var(--text)', width: 90, flexShrink: 0, fontWeight: 500 },
+  input: { flex: 1, padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text-h)', fontSize: 13 },
+  select: { padding: '6px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text-h)', fontSize: 13 },
+  textarea: { padding: '8px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text-h)', fontSize: 12, fontFamily: 'var(--mono)', resize: 'vertical' },
+  hint2: { fontSize: 11, color: 'var(--text)' },
+  code2: { fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--accent)' },
+};
 const TYPE_HINTS = {
   String: 'texto livre',
   Integer: 'número inteiro',
   Decimal: 'número decimal',
-  Date: 'DD/MM/AAAA',
-  Time: 'HH:MM',
-  Datetime: 'DD/MM/AAAA HH:MM',
+  Date: 'máscara',
+  Time: 'máscara',
+  Datetime: 'máscara',
+  Dropdown: 'lista de opções',
 };
+
+const DEFAULT_MASK = { Date: 'DD/MM/AAAA', Time: 'HH:MM', Datetime: 'DD/MM/AAAA HH:MM' };
+const MASK_TYPES = ['Date', 'Time', 'Datetime'];
+
+const DROPDOWN_PLACEHOLDER = `["Sim", "Não"]\nou com ID:\n[{"id":"S","label":"Sim"},\n {"id":"N","label":"Não"}]`;
 
 function emptyKeyword() {
   return { name: '', type: 'String' };
@@ -29,33 +134,56 @@ function KeywordEditor({ keywords, onChange }) {
         <p style={{ margin: 0, fontSize: 13, color: 'var(--text)' }}>Nenhum campo. Clique em "+ Campo" para adicionar.</p>
       )}
       {keywords.map((kw, i) => (
-        <div key={i} style={kwStyles.row}>
-          <input
-            style={{ ...kwStyles.nameInput }}
-            value={kw.name}
-            onChange={(e) => update(i, 'name', e.target.value.toUpperCase())}
-            placeholder="NOME"
-          />
-          <select
-            style={kwStyles.typeSelect}
-            value={kw.type}
-            onChange={(e) => update(i, 'type', e.target.value)}
-          >
-            {FIELD_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-          </select>
-          {kw.type === 'Decimal' && (
+        <div key={i} style={kwStyles.fieldBlock}>
+          <div style={kwStyles.row}>
             <input
-              style={kwStyles.decimalsInput}
-              type="number"
-              min={0}
-              max={10}
-              value={kw.decimals ?? 2}
-              onChange={(e) => update(i, 'decimals', Number(e.target.value))}
-              title="Casas decimais"
+              style={kwStyles.nameInput}
+              value={kw.name}
+              onChange={(e) => update(i, 'name', e.target.value.toUpperCase())}
+              placeholder="NOME"
+            />
+            <select
+              style={kwStyles.typeSelect}
+              value={kw.type}
+              onChange={(e) => update(i, 'type', e.target.value)}
+            >
+              {FIELD_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+            {kw.type === 'Decimal' && (
+              <input
+                style={kwStyles.decimalsInput}
+                type="number"
+                min={0}
+                max={10}
+                value={kw.decimals ?? 2}
+                onChange={(e) => update(i, 'decimals', Number(e.target.value))}
+                title="Casas decimais"
+              />
+            )}
+            {MASK_TYPES.includes(kw.type) && (
+              <input
+                style={kwStyles.maskInput}
+                value={kw.mask || ''}
+                onChange={(e) => update(i, 'mask', e.target.value)}
+                placeholder={DEFAULT_MASK[kw.type]}
+                title="Máscara (ex: DD/MM/AAAA)"
+              />
+            )}
+            {!MASK_TYPES.includes(kw.type) && (
+              <span style={kwStyles.hint}>{TYPE_HINTS[kw.type]}</span>
+            )}
+            <button style={kwStyles.removeBtn} onClick={() => remove(i)} title="Remover">✕</button>
+          </div>
+          {kw.type === 'Dropdown' && (
+            <textarea
+              style={kwStyles.optionsTextarea}
+              rows={3}
+              value={Array.isArray(kw.options) ? JSON.stringify(kw.options, null, 2) : (kw.options || '')}
+              onChange={(e) => update(i, 'options', e.target.value)}
+              placeholder={DROPDOWN_PLACEHOLDER}
+              spellCheck={false}
             />
           )}
-          <span style={kwStyles.hint}>{TYPE_HINTS[kw.type]}</span>
-          <button style={kwStyles.removeBtn} onClick={() => remove(i)} title="Remover">✕</button>
         </div>
       ))}
       <button style={kwStyles.addBtn} type="button" onClick={add}>+ Campo</button>
@@ -65,7 +193,13 @@ function KeywordEditor({ keywords, onChange }) {
 
 const kwStyles = {
   container: { display: 'flex', flexDirection: 'column', gap: 6 },
+  fieldBlock: { display: 'flex', flexDirection: 'column', gap: 4 },
   row: { display: 'flex', alignItems: 'center', gap: 8 },
+  optionsTextarea: {
+    padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)',
+    background: 'var(--bg)', color: 'var(--text-h)', fontSize: 11,
+    fontFamily: 'var(--mono)', resize: 'vertical', marginLeft: 118,
+  },
   nameInput: {
     width: 110, padding: '6px 10px', borderRadius: 6,
     border: '1px solid var(--border)', background: 'var(--bg)',
@@ -81,6 +215,11 @@ const kwStyles = {
     border: '1px solid var(--border)', background: 'var(--bg)',
     color: 'var(--text-h)', fontSize: 13, textAlign: 'center',
   },
+  maskInput: {
+    width: 130, padding: '6px 8px', borderRadius: 6,
+    border: '1px solid var(--border)', background: 'var(--bg)',
+    color: 'var(--text-h)', fontSize: 12, fontFamily: 'var(--mono)',
+  },
   hint: { fontSize: 11, color: 'var(--text)', flex: 1 },
   removeBtn: {
     background: 'none', border: 'none', cursor: 'pointer',
@@ -93,13 +232,15 @@ const kwStyles = {
   },
 };
 
-function KeywordSetsSection({ token }) {
+function KeywordSetsSection({ token, isAdmin }) {
   const [sets, setSets] = useState([]);
   const [newName, setNewName] = useState('');
   const [newKeywords, setNewKeywords] = useState([emptyKeyword()]);
   const [editingId, setEditingId] = useState(null);
   const [editName, setEditName] = useState('');
   const [editKeywords, setEditKeywords] = useState([]);
+  const [editWebhook, setEditWebhook] = useState(null);
+  const [newWebhook, setNewWebhook] = useState(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -114,13 +255,14 @@ function KeywordSetsSection({ token }) {
     const res = await apiFetch('/keyword-sets', {
       token, method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: newName, keywords: valid }),
+      body: JSON.stringify({ name: newName, keywords: valid, webhook: newWebhook }),
     });
     if (res) {
       const created = await res.json();
       setSets((s) => [...s, created]);
       setNewName('');
       setNewKeywords([emptyKeyword()]);
+      setNewWebhook(null);
     }
     setSaving(false);
   }
@@ -129,6 +271,7 @@ function KeywordSetsSection({ token }) {
     setEditingId(s.id);
     setEditName(s.name);
     setEditKeywords(s.keywords.map((k) => ({ ...k })));
+    setEditWebhook(s.webhook || null);
   }
 
   async function handleUpdate(id) {
@@ -138,7 +281,7 @@ function KeywordSetsSection({ token }) {
     const res = await apiFetch(`/keyword-sets/${id}`, {
       token, method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: editName, keywords: valid }),
+      body: JSON.stringify({ name: editName, keywords: valid, webhook: editWebhook }),
     });
     if (res) {
       const updated = await res.json();
@@ -166,6 +309,7 @@ function KeywordSetsSection({ token }) {
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <input style={styles.input} value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="Nome do conjunto" />
                 <KeywordEditor keywords={editKeywords} onChange={setEditKeywords} />
+                <WebhookEditor webhook={editWebhook} onChange={setEditWebhook} keywords={editKeywords} />
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button style={styles.saveSmallBtn} onClick={() => handleUpdate(s.id)} disabled={saving}>Salvar</button>
                   <button style={styles.cancelSmallBtn} onClick={() => setEditingId(null)}>Cancelar</button>
@@ -174,7 +318,12 @@ function KeywordSetsSection({ token }) {
             ) : (
               <>
                 <div style={styles.setInfo}>
-                  <span style={styles.setName}>{s.name}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={styles.setName}>{s.name}</span>
+                    {s.webhook?.url && (
+                      <span style={styles.webhookBadge} title={`Webhook: ${s.webhook.url}`}>⇒ webhook</span>
+                    )}
+                  </div>
                   <div style={styles.kwList}>
                     {s.keywords.map((k) => (
                       <span key={k.name} style={styles.kwBadge} title={`${k.type}${k.type === 'Decimal' ? ` (${k.decimals} dec.)` : ''}`}>
@@ -184,24 +333,29 @@ function KeywordSetsSection({ token }) {
                     ))}
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                  <button style={styles.editSmallBtn} onClick={() => startEdit(s)}>Editar</button>
-                  <button style={styles.deleteSmallBtn} onClick={() => handleDelete(s.id)}>✕</button>
-                </div>
+                {isAdmin && (
+                  <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                    <button style={styles.editSmallBtn} onClick={() => startEdit(s)}>Editar</button>
+                    <button style={styles.deleteSmallBtn} onClick={() => handleDelete(s.id)}>✕</button>
+                  </div>
+                )}
               </>
             )}
           </div>
         ))}
       </div>
 
-      <form onSubmit={handleCreate} style={styles.createForm}>
-        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-h)' }}>Novo conjunto</span>
-        <input style={styles.input} value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Nome (ex: Suporte técnico)" />
-        <KeywordEditor keywords={newKeywords} onChange={setNewKeywords} />
-        <button style={styles.createBtn} type="submit" disabled={saving || !newName}>
-          + Criar conjunto
-        </button>
-      </form>
+      {isAdmin && (
+        <form onSubmit={handleCreate} style={styles.createForm}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-h)' }}>Novo conjunto</span>
+          <input style={styles.input} value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Nome (ex: Suporte técnico)" />
+          <KeywordEditor keywords={newKeywords} onChange={setNewKeywords} />
+          <WebhookEditor webhook={newWebhook} onChange={setNewWebhook} keywords={newKeywords} />
+          <button style={styles.createBtn} type="submit" disabled={saving || !newName}>
+            + Criar conjunto
+          </button>
+        </form>
+      )}
     </div>
   );
 }
@@ -235,7 +389,7 @@ function CreditRow({ label, value, color }) {
   );
 }
 
-export default function Settings({ token }) {
+export default function Settings({ token, user }) {
   const [settings, setSettings] = useState(null);
   const [credits, setCredits] = useState(null);
   const [creditsError, setCreditsError] = useState('');
@@ -349,7 +503,7 @@ export default function Settings({ token }) {
           )}
         </div>
 
-        <KeywordSetsSection token={token} />
+        <KeywordSetsSection token={token} isAdmin={user?.role === 'ADMIN'} />
 
         <div style={styles.block}>
           <span style={styles.blockTitle}>Chaves de API</span>
@@ -559,6 +713,15 @@ const styles = {
     display: 'flex',
     flexWrap: 'wrap',
     gap: 4,
+  },
+  webhookBadge: {
+    fontSize: 10,
+    fontWeight: 600,
+    padding: '2px 7px',
+    borderRadius: 20,
+    background: 'rgba(34,197,94,0.1)',
+    color: '#22c55e',
+    border: '1px solid rgba(34,197,94,0.3)',
   },
   kwBadge: {
     display: 'inline-flex',

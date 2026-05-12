@@ -30,8 +30,9 @@ exports.uploadAudio = async (req, res) => {
 };
 
 exports.listMine = async (req, res) => {
+  const showHidden = req.query.showHidden === 'true';
   const audios = await prisma.audio.findMany({
-    where: { userId: req.user.id },
+    where: { userId: req.user.id, ...(showHidden ? {} : { hidden: false }) },
     orderBy: { createdAt: 'desc' },
     include: { transcription: { select: { auditedAt: true } } },
   });
@@ -40,25 +41,52 @@ exports.listMine = async (req, res) => {
 
 exports.deleteMine = async (req, res) => {
   const { id } = req.params;
-  const audio = await prisma.audio.findUnique({ where: { id } });
+  const audio = await prisma.audio.findUnique({
+    where: { id },
+    include: { transcription: { select: { auditedAt: true } } },
+  });
   if (!audio || audio.userId !== req.user.id) return res.status(404).json({ error: 'Áudio não encontrado' });
+  if (audio.transcription?.auditedAt) return res.status(400).json({ error: 'Áudio auditado não pode ser removido.' });
 
   await prisma.audio.delete({ where: { id } });
   res.status(204).send();
 };
 
+exports.hideMine = async (req, res) => {
+  const { id } = req.params;
+  const audio = await prisma.audio.findUnique({ where: { id } });
+  if (!audio || audio.userId !== req.user.id) return res.status(404).json({ error: 'Áudio não encontrado' });
+  await prisma.audio.update({ where: { id }, data: { hidden: true } });
+  res.status(204).send();
+};
+
 exports.searchAll = async (req, res) => {
-  const { q = '' } = req.query;
+  const { q = '', audited } = req.query;
+  const where = {};
+
+  if (q) {
+    where.OR = [
+      { user: { name: { contains: q, mode: 'insensitive' } } },
+      { transcription: { auditedBy: { name: { contains: q, mode: 'insensitive' } } } },
+      { transcription: { keywordSet: { name: { contains: q, mode: 'insensitive' } } } },
+    ];
+  }
+
+  if (audited === 'yes') where.transcription = { auditedAt: { not: null } };
+  if (audited === 'no') where.transcription = { auditedAt: null };
+
   const audios = await prisma.audio.findMany({
-    where: {
-      OR: [
-        { extractedClient: { contains: q, mode: 'insensitive' } },
-        { extractedSubject: { contains: q, mode: 'insensitive' } },
-        { extractedMedium: { contains: q, mode: 'insensitive' } }
-      ]
+    where,
+    include: {
+      user: { select: { name: true, email: true } },
+      transcription: {
+        include: {
+          keywordSet: { select: { name: true } },
+          auditedBy: { select: { name: true } },
+        },
+      },
     },
-    include: { user: { select: { id: true, name: true, email: true } } },
-    orderBy: { createdAt: 'desc' }
+    orderBy: { createdAt: 'desc' },
   });
   res.json(audios);
 };

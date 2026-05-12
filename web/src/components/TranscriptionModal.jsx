@@ -1,7 +1,104 @@
 import { useEffect, useState } from 'react';
 import { apiFetch } from '../lib/api';
 
-export default function TranscriptionModal({ audio, token, onClose }) {
+function stripJsonComments(str) {
+  // Remove # and // line comments, then trailing commas before } or ]
+  return str
+    .replace(/\/\/[^\n]*/g, '')
+    .replace(/#[^\n]*/g, '')
+    .replace(/,(\s*[}\]])/g, '$1');
+}
+
+function interpolate(value, ctx) {
+  if (typeof value === 'string') return value.replace(/\{\{([^}]+)\}\}/g, (_, k) => ctx[k.trim()] ?? '');
+  if (Array.isArray(value)) return value.map((v) => interpolate(v, ctx));
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, interpolate(v, ctx)]));
+  return value;
+}
+
+function buildCurl(webhook, fields, audio, transcription) {
+  const ctx = {
+    ...fields,
+    __audioId__: audio.id,
+    __recordedAt__: audio.createdAt || '',
+    __recordedBy__: audio.user?.name || '',
+    __auditedAt__: transcription?.auditedAt || '',
+    __auditedBy__: transcription?.auditedBy?.name || '',
+  };
+
+  let body;
+  let bodyError = null;
+  const raw = webhook.bodyTemplate || '{}';
+  // Interpolate as raw string first, then parse — allows unquoted {{TOKEN}} to produce numbers
+  const interpolatedStr = stripJsonComments(raw).replace(/\{\{([^}]+)\}\}/g, (match, k) => {
+    const val = ctx[k.trim()];
+    return val !== undefined && val !== '' ? String(val) : match;
+  });
+  try {
+    body = JSON.parse(interpolatedStr);
+  } catch (e) {
+    bodyError = e.message;
+    body = interpolatedStr;
+  }
+
+  let extra = {};
+  try { extra = JSON.parse(stripJsonComments(webhook.extraHeaders || '{}')); } catch {}
+
+  const headers = { 'Content-Type': 'application/json', ...extra };
+  if (webhook.authType === 'bearer') headers['Authorization'] = `Bearer ${webhook.authToken}`;
+  if (webhook.authType === 'basic') headers['Authorization'] = `Basic ${btoa(`${webhook.authUser}:${webhook.authPass}`)}`;
+  if (webhook.authType === 'apikey') headers[webhook.authHeader || 'X-API-Key'] = webhook.authKey;
+
+  const headerFlags = Object.entries(headers)
+    .map(([k, v]) => `  -H '${k}: ${v}'`)
+    .join(' \\\n');
+
+  const bodyStr = typeof body === 'string' ? body : JSON.stringify(body, null, 2);
+  const curlStr = `curl -X ${webhook.method || 'POST'} '${webhook.url}' \\\n${headerFlags} \\\n  -d '${bodyStr}'`;
+
+  return { curl: curlStr, bodyError };
+}
+
+function CurlModal({ curl, bodyError, onClose }) {
+  const [copied, setCopied] = useState(false);
+  function copy() {
+    navigator.clipboard.writeText(curl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+  return (
+    <div style={curlStyles.overlay} onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div style={curlStyles.box}>
+        <div style={curlStyles.header}>
+          <span style={curlStyles.title}>cURL equivalente</span>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button style={curlStyles.copyBtn} onClick={copy}>{copied ? '✓ Copiado' : 'Copiar'}</button>
+            <button style={curlStyles.closeBtn} onClick={onClose}>✕</button>
+          </div>
+        </div>
+        {bodyError && (
+          <div style={curlStyles.errorBanner}>
+            <strong>Body template com JSON inválido</strong> — remova os comentários (<code>#</code> ou <code>//</code>) e verifique vírgulas. Erro: {bodyError}
+          </div>
+        )}
+        <pre style={curlStyles.pre}>{curl}</pre>
+      </div>
+    </div>
+  );
+}
+
+const curlStyles = {
+  overlay: { position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16 },
+  box: { background: 'var(--bg)', borderRadius: 14, width: '100%', maxWidth: 700, maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow)' },
+  header: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--border)' },
+  title: { fontWeight: 600, fontSize: 15, color: 'var(--text-h)' },
+  copyBtn: { padding: '6px 14px', borderRadius: 7, border: '1px solid var(--border)', background: 'none', color: 'var(--text)', fontSize: 13, cursor: 'pointer' },
+  closeBtn: { background: 'none', border: 'none', fontSize: 16, cursor: 'pointer', color: 'var(--text)', padding: '2px 6px' },
+  errorBanner: { padding: '10px 20px', background: 'rgba(239,68,68,0.08)', borderBottom: '1px solid rgba(239,68,68,0.25)', fontSize: 12, color: '#ef4444', lineHeight: '160%' },
+  pre: { flex: 1, overflowY: 'auto', margin: 0, padding: '16px 20px', fontSize: 12, fontFamily: 'var(--mono)', color: 'var(--text-h)', background: 'var(--code-bg)', borderRadius: '0 0 14px 14px', whiteSpace: 'pre-wrap', wordBreak: 'break-all' },
+};
+
+export default function TranscriptionModal({ audio, token, user, onClose }) {
   const [transcription, setTranscription] = useState(null);
   const [keywordSets, setKeywordSets] = useState([]);
   const [selectedSetId, setSelectedSetId] = useState('');
@@ -11,6 +108,9 @@ export default function TranscriptionModal({ audio, token, onClose }) {
   const [applying, setApplying] = useState(false);
   const [normalizing, setNormalizing] = useState(false);
   const [auditing, setAuditing] = useState(false);
+  const [dispatching, setDispatching] = useState(false);
+  const [dispatchResult, setDispatchResult] = useState(null);
+  const [showCurl, setShowCurl] = useState(false);
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
@@ -73,6 +173,21 @@ export default function TranscriptionModal({ audio, token, onClose }) {
     setAuditing(false);
   }
 
+  async function handleDispatch() {
+    setDispatching(true);
+    setDispatchResult(null);
+    const res = await apiFetch(`/audios/${audio.id}/transcription/dispatch`, {
+      token,
+      method: 'POST',
+    });
+    if (res) {
+      const data = await res.json();
+      setDispatchResult({ ok: res.ok, message: res.ok ? `Enviado (HTTP ${data.status})` : (data.error || `Erro ${data.status}`) });
+      setTimeout(() => setDispatchResult(null), 4000);
+    }
+    setDispatching(false);
+  }
+
   async function handleSave() {
     setSaving(true);
     const res = await apiFetch(`/audios/${audio.id}/transcription`, {
@@ -126,20 +241,42 @@ export default function TranscriptionModal({ audio, token, onClose }) {
                   {keywords.map((kw) => {
                     const name = typeof kw === 'string' ? kw : kw.name;
                     const type = typeof kw === 'string' ? 'String' : kw.type;
-                    const placeholder = { Date: 'DD/MM/AAAA', Time: 'HH:MM', Datetime: 'DD/MM/AAAA HH:MM', Integer: '0', Decimal: `0.${'0'.repeat(kw.decimals ?? 2)}` }[type] || '';
+                    const defaultPlaceholder = { Date: 'DD/MM/AAAA', Time: 'HH:MM', Datetime: 'DD/MM/AAAA HH:MM', Integer: '0', Decimal: `0.${'0'.repeat(kw.decimals ?? 2)}` }[type] || '';
+                    const placeholder = kw.mask || defaultPlaceholder;
+                    const isDropdown = type === 'Dropdown';
+                    const dropdownOptions = isDropdown
+                      ? (kw.options || []).map((o) =>
+                          typeof o === 'string' ? { id: o, label: o } : { id: o.id ?? o.label, label: o.label }
+                        )
+                      : [];
+
                     return (
                       <div key={name} style={styles.fieldRow}>
                         <div style={styles.fieldKeyWrap}>
                           <span style={styles.fieldKey}>{name}</span>
                           <span style={styles.fieldType}>{type}</span>
                         </div>
-                        <input
-                          style={{ ...styles.fieldInput, ...(transcription?.auditedAt ? styles.fieldInputLocked : {}) }}
-                          value={fields[name] || ''}
-                          placeholder={placeholder}
-                          readOnly={!!transcription?.auditedAt}
-                          onChange={(e) => setFields((f) => ({ ...f, [name]: e.target.value }))}
-                        />
+                        {isDropdown ? (
+                          <select
+                            style={{ ...styles.fieldInput, ...(transcription?.auditedAt ? styles.fieldInputLocked : {}), cursor: transcription?.auditedAt ? 'not-allowed' : 'pointer' }}
+                            value={fields[name] || ''}
+                            disabled={!!transcription?.auditedAt}
+                            onChange={(e) => setFields((f) => ({ ...f, [name]: e.target.value }))}
+                          >
+                            <option value="">— selecionar —</option>
+                            {dropdownOptions.map((o) => (
+                              <option key={o.id} value={o.id}>{o.label}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <input
+                            style={{ ...styles.fieldInput, ...(transcription?.auditedAt ? styles.fieldInputLocked : {}) }}
+                            value={fields[name] || ''}
+                            placeholder={placeholder}
+                            readOnly={!!transcription?.auditedAt}
+                            onChange={(e) => setFields((f) => ({ ...f, [name]: e.target.value }))}
+                          />
+                        )}
                       </div>
                     );
                   })}
@@ -174,6 +311,28 @@ export default function TranscriptionModal({ audio, token, onClose }) {
             )}
           </div>
           <div style={styles.footerRight}>
+            {activeSet?.webhook?.url && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {dispatchResult && (
+                  <span style={{ fontSize: 12, fontWeight: 600, color: dispatchResult.ok ? '#22c55e' : '#ef4444' }}>
+                    {dispatchResult.message}
+                  </span>
+                )}
+                {user?.role === 'ADMIN' && (
+                  <button style={styles.curlBtn} onClick={() => setShowCurl(true)} disabled={loading}>
+                    Ver cURL
+                  </button>
+                )}
+                <button
+                  style={{ ...styles.dispatchBtn, ...(dispatching ? styles.saveBtnDisabled : {}) }}
+                  onClick={handleDispatch}
+                  disabled={dispatching || loading}
+                  title={`Enviar para ${activeSet.webhook.url}`}
+                >
+                  {dispatching ? 'Enviando...' : '⇒ Enviar'}
+                </button>
+              </div>
+            )}
             <button style={styles.cancelBtn} onClick={onClose}>Fechar</button>
             <button
               style={{
@@ -196,6 +355,10 @@ export default function TranscriptionModal({ audio, token, onClose }) {
           </div>
         </div>
       </div>
+      {showCurl && activeSet?.webhook && (() => {
+        const { curl, bodyError } = buildCurl(activeSet.webhook, fields, audio, transcription);
+        return <CurlModal curl={curl} bodyError={bodyError} onClose={() => setShowCurl(false)} />;
+      })()}
     </div>
   );
 }
@@ -358,6 +521,26 @@ const styles = {
     background: 'none',
     color: 'var(--accent)',
     fontSize: 14,
+    cursor: 'pointer',
+  },
+  curlBtn: {
+    padding: '10px 16px',
+    borderRadius: 8,
+    border: '1px solid var(--border)',
+    background: 'none',
+    color: 'var(--text)',
+    fontSize: 13,
+    cursor: 'pointer',
+    fontFamily: 'var(--mono)',
+  },
+  dispatchBtn: {
+    padding: '10px 18px',
+    borderRadius: 8,
+    border: '1px solid #22c55e',
+    background: 'none',
+    color: '#22c55e',
+    fontSize: 14,
+    fontWeight: 600,
     cursor: 'pointer',
   },
   auditBtn: {

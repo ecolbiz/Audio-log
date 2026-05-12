@@ -1,5 +1,6 @@
 const prisma = require('../utils/prisma');
 const { normalizeFields } = require('../services/normalizationService');
+const { dispatch: webhookDispatch } = require('../services/webhookService');
 
 const INCLUDE = {
   keywordSet: true,
@@ -9,7 +10,8 @@ const INCLUDE = {
 function parseWithKeywords(text, keywordDefs) {
   const result = {};
   const upper = text.toUpperCase();
-  const names = keywordDefs.map((k) => k.name);
+  const parseable = keywordDefs.filter((k) => k.type !== 'Dropdown');
+  const names = parseable.map((k) => k.name);
   for (const kw of names) {
     const start = upper.indexOf(kw);
     if (start === -1) continue;
@@ -123,6 +125,37 @@ exports.normalize = async (req, res) => {
     include: INCLUDE,
   });
   res.json(updated);
+};
+
+exports.dispatch = async (req, res) => {
+  const { id } = req.params;
+  const audio = await prisma.audio.findUnique({
+    where: { id },
+    include: {
+      user: { select: { name: true } },
+      transcription: {
+        include: {
+          keywordSet: true,
+          auditedBy: { select: { name: true } },
+        },
+      },
+    },
+  });
+  if (!audio || audio.userId !== req.user.id) {
+    return res.status(404).json({ error: 'Áudio não encontrado.' });
+  }
+  const t = audio.transcription;
+  if (!t) return res.status(400).json({ error: 'Sem transcrição.' });
+
+  const webhook = t.keywordSet?.webhook;
+  if (!webhook?.url) return res.status(400).json({ error: 'Nenhum webhook configurado para este CPC.' });
+
+  try {
+    const result = await webhookDispatch(webhook, t, audio);
+    res.json({ ok: result.ok, status: result.status, body: result.body });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
 };
 
 exports.update = async (req, res) => {

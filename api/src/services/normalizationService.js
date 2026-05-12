@@ -14,7 +14,13 @@ const FORMAT_HINTS = {
 async function normalizeFields(fullText, currentFields, keywords) {
   if (!keywords || keywords.length === 0) return currentFields;
 
-  const fieldDescriptions = keywords
+  const normalizable = keywords.filter((kw) => {
+    const type = typeof kw === 'string' ? 'String' : kw.type;
+    return type !== 'Dropdown';
+  });
+  if (normalizable.length === 0) return currentFields;
+
+  const fieldDescriptions = normalizable
     .map((kw) => {
       const name = typeof kw === 'string' ? kw : kw.name;
       const type = typeof kw === 'string' ? 'String' : kw.type;
@@ -22,7 +28,7 @@ async function normalizeFields(fullText, currentFields, keywords) {
       const fmt =
         type === 'Decimal'
           ? `decimal with ${decimals} decimal places, dot separator`
-          : FORMAT_HINTS[type] || 'plain text';
+          : (kw.mask ? `format: ${kw.mask}` : FORMAT_HINTS[type] || 'plain text');
       const current = currentFields[name] ?? '';
       return `- ${name} (${type}, format: ${fmt}): current value = "${current}"`;
     })
@@ -67,7 +73,7 @@ Return ONLY a flat JSON object mapping each field name to its normalized value s
   }
 
   const merged = { ...currentFields };
-  for (const kw of keywords) {
+  for (const kw of normalizable) {
     const name = typeof kw === 'string' ? kw : kw.name;
     if (raw[name] !== undefined) merged[name] = String(raw[name]);
   }

@@ -18,8 +18,9 @@ type AudioItem = {
   id: string;
   filePath: string;
   status: 'PENDING' | 'TRANSCRIBED' | 'FAILED';
+  hidden: boolean;
   createdAt: string;
-  transcriptRaw?: string;
+  transcription?: { auditedAt: string | null };
 };
 
 function formatDate(iso: string) {
@@ -40,15 +41,15 @@ export default function RecordingsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [playingId, setPlayingId] = useState<string | null>(null);
+  const [showHidden, setShowHidden] = useState(false);
   const soundRef = useRef<Audio.Sound | null>(null);
 
-  async function fetchAudios(silent = false) {
+  async function fetchAudios(silent = false, includeHidden = showHidden) {
     const token = await getToken();
     if (!token) { router.replace('/login'); return; }
     if (!silent) setLoading(true);
-    const res = await fetch(`${BASE_URL}/audios/mine`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const url = `${BASE_URL}/audios/mine${includeHidden ? '?showHidden=true' : ''}`;
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
     if (res.status === 401) { await clearToken(); router.replace('/login'); return; }
     const data = await res.json();
     setAudios(Array.isArray(data) ? data : []);
@@ -58,10 +59,16 @@ export default function RecordingsScreen() {
 
   useEffect(() => { fetchAudios(); }, []);
 
+  function toggleShowHidden() {
+    const next = !showHidden;
+    setShowHidden(next);
+    fetchAudios(false, next);
+  }
+
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     fetchAudios(true);
-  }, []);
+  }, [showHidden]);
 
   async function togglePlay(item: AudioItem) {
     if (playingId === item.id) {
@@ -76,8 +83,7 @@ export default function RecordingsScreen() {
       await soundRef.current.unloadAsync();
       soundRef.current = null;
     }
-    const url = `${SERVER_URL}/${item.filePath}`;
-    const { sound } = await Audio.Sound.createAsync({ uri: url });
+    const { sound } = await Audio.Sound.createAsync({ uri: `${SERVER_URL}/${item.filePath}` });
     soundRef.current = sound;
     setPlayingId(item.id);
     await sound.playAsync();
@@ -97,8 +103,7 @@ export default function RecordingsScreen() {
       [
         { text: 'Cancelar', style: 'cancel' },
         {
-          text: 'Remover',
-          style: 'destructive',
+          text: 'Remover', style: 'destructive',
           onPress: async () => {
             const token = await getToken();
             const res = await fetch(`${BASE_URL}/audios/${item.id}`, {
@@ -117,6 +122,30 @@ export default function RecordingsScreen() {
     );
   }
 
+  async function handleHide(item: AudioItem) {
+    Alert.alert(
+      'Ocultar gravação',
+      'A gravação auditada não pode ser removida, mas será ocultada desta lista. Deseja continuar?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Ocultar',
+          onPress: async () => {
+            const token = await getToken();
+            const res = await fetch(`${BASE_URL}/audios/${item.id}/hide`, {
+              method: 'PATCH',
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            if (res.status === 401) { await clearToken(); router.replace('/login'); return; }
+            if (res.ok || res.status === 204) {
+              setAudios((prev) => prev.filter((a) => a.id !== item.id));
+            }
+          },
+        },
+      ]
+    );
+  }
+
   if (loading) {
     return (
       <View style={styles.centered}>
@@ -127,7 +156,13 @@ export default function RecordingsScreen() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Minhas Gravações</Text>
+      <View style={styles.header}>
+        <Text style={styles.title}>Minhas Gravações</Text>
+        <TouchableOpacity style={styles.toggleBtn} onPress={toggleShowHidden}>
+          <Text style={styles.toggleText}>{showHidden ? 'Ocultar ocultas' : 'Mostrar ocultas'}</Text>
+        </TouchableOpacity>
+      </View>
+
       <FlatList
         data={audios}
         keyExtractor={(item) => item.id}
@@ -139,8 +174,10 @@ export default function RecordingsScreen() {
         renderItem={({ item }) => {
           const st = STATUS_LABEL[item.status] ?? STATUS_LABEL.PENDING;
           const isPlaying = playingId === item.id;
+          const isAudited = !!item.transcription?.auditedAt;
+
           return (
-            <View style={styles.card}>
+            <View style={[styles.card, isAudited && styles.cardAudited]}>
               <TouchableOpacity
                 style={[styles.playBtn, isPlaying && styles.playBtnActive]}
                 onPress={() => togglePlay(item)}
@@ -152,12 +189,25 @@ export default function RecordingsScreen() {
 
               <View style={styles.info}>
                 <Text style={styles.date}>{formatDate(item.createdAt)}</Text>
-                <Text style={[styles.status, { color: st.color }]}>{st.text}</Text>
+                <View style={styles.badges}>
+                  <Text style={[styles.statusText, { color: st.color }]}>{st.text}</Text>
+                  {isAudited && (
+                    <View style={styles.auditedBadge}>
+                      <Text style={styles.auditedText}>Auditado</Text>
+                    </View>
+                  )}
+                </View>
               </View>
 
-              <TouchableOpacity style={styles.deleteBtn} onPress={() => handleDelete(item)}>
-                <Text style={styles.deleteIcon}>🗑</Text>
-              </TouchableOpacity>
+              {isAudited ? (
+                <TouchableOpacity style={styles.hideBtn} onPress={() => handleHide(item)}>
+                  <Text style={styles.hideBtnText}>Ocultar</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity style={styles.deleteBtn} onPress={() => handleDelete(item)}>
+                  <Text style={styles.deleteIcon}>🗑</Text>
+                </TouchableOpacity>
+              )}
             </View>
           );
         }}
@@ -167,40 +217,27 @@ export default function RecordingsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-    paddingTop: 60,
-  },
-  centered: {
-    flex: 1,
-    justifyContent: 'center',
+  container: { flex: 1, backgroundColor: '#fff', paddingTop: 60 },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' },
+  header: {
+    flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#111',
+    justifyContent: 'space-between',
     paddingHorizontal: 20,
     marginBottom: 16,
   },
-  list: {
-    paddingHorizontal: 16,
-    paddingBottom: 32,
-    gap: 10,
+  title: { fontSize: 24, fontWeight: 'bold', color: '#111' },
+  toggleBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#DDD',
   },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  emptyText: {
-    textAlign: 'center',
-    color: '#999',
-    fontSize: 15,
-    lineHeight: 24,
-  },
+  toggleText: { fontSize: 12, color: '#666' },
+  list: { paddingHorizontal: 16, paddingBottom: 32, gap: 10 },
+  emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  emptyText: { textAlign: 'center', color: '#999', fontSize: 15, lineHeight: 24 },
   card: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -211,42 +248,39 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#EFEFEF',
   },
+  cardAudited: {
+    borderColor: 'rgba(139,92,246,0.25)',
+    backgroundColor: 'rgba(139,92,246,0.04)',
+  },
   playBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    borderWidth: 2,
-    borderColor: '#2563EB',
-    justifyContent: 'center',
-    alignItems: 'center',
+    width: 44, height: 44, borderRadius: 22,
+    borderWidth: 2, borderColor: '#2563EB',
+    justifyContent: 'center', alignItems: 'center',
   },
-  playBtnActive: {
-    backgroundColor: '#2563EB',
+  playBtnActive: { backgroundColor: '#2563EB' },
+  playIcon: { fontSize: 14, color: '#2563EB' },
+  playIconActive: { color: '#fff' },
+  info: { flex: 1, gap: 4 },
+  date: { fontSize: 14, fontWeight: '600', color: '#222' },
+  badges: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  statusText: { fontSize: 12, fontWeight: '500' },
+  auditedBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    backgroundColor: 'rgba(139,92,246,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(139,92,246,0.3)',
   },
-  playIcon: {
-    fontSize: 14,
-    color: '#2563EB',
+  auditedText: { fontSize: 11, fontWeight: '600', color: '#8B5CF6' },
+  deleteBtn: { padding: 8 },
+  deleteIcon: { fontSize: 18 },
+  hideBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#DDD',
   },
-  playIconActive: {
-    color: '#fff',
-  },
-  info: {
-    flex: 1,
-    gap: 3,
-  },
-  date: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#222',
-  },
-  status: {
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  deleteBtn: {
-    padding: 8,
-  },
-  deleteIcon: {
-    fontSize: 18,
-  },
+  hideBtnText: { fontSize: 12, color: '#999' },
 });
