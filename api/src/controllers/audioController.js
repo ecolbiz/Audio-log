@@ -60,6 +60,14 @@ exports.hideMine = async (req, res) => {
   res.status(204).send();
 };
 
+exports.unhideMine = async (req, res) => {
+  const { id } = req.params;
+  const audio = await prisma.audio.findUnique({ where: { id } });
+  if (!audio || audio.userId !== req.user.id) return res.status(404).json({ error: 'Áudio não encontrado' });
+  await prisma.audio.update({ where: { id }, data: { hidden: false } });
+  res.status(204).send();
+};
+
 exports.searchAll = async (req, res) => {
   const { q = '', audited } = req.query;
   const where = {};
@@ -81,7 +89,7 @@ exports.searchAll = async (req, res) => {
       user: { select: { name: true, email: true } },
       transcription: {
         include: {
-          keywordSet: { select: { name: true } },
+          keywordSet: { select: { name: true, keywords: true } },
           auditedBy: { select: { name: true } },
         },
       },

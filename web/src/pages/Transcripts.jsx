@@ -23,14 +23,35 @@ function StatusBadge({ status }) {
   );
 }
 
-function FieldsCell({ fields }) {
+function resolveDropdownLabel(kw, id) {
+  if (!id || !kw.options) return id;
+  const opt = kw.options.find((o) =>
+    typeof o === 'string' ? o === id : (o.id ?? o.label) === id
+  );
+  if (!opt || typeof opt === 'string') return id;
+  return opt.label ? `${id} — ${opt.label}` : id;
+}
+
+function FieldsCell({ fields, keywordSet }) {
   if (!fields || Object.keys(fields).length === 0) return <span style={styles.empty2}>—</span>;
+
+  const keywords = keywordSet?.keywords;
+  const entries = keywords
+    ? keywords.map((kw) => {
+        const val = fields[kw.name] ?? '';
+        const display = kw.type === 'Dropdown' && val
+          ? resolveDropdownLabel(kw, val)
+          : (val || '—');
+        return { name: kw.name, display };
+      })
+    : Object.entries(fields).map(([k, v]) => ({ name: k, display: v || '—' }));
+
   return (
     <div style={styles.fields}>
-      {Object.entries(fields).map(([k, v]) => (
-        <div key={k} style={styles.fieldPair}>
-          <span style={styles.fieldKey}>{k}</span>
-          <span style={styles.fieldVal}>{v || '—'}</span>
+      {entries.map(({ name, display }) => (
+        <div key={name} style={styles.fieldPair}>
+          <span style={styles.fieldKey}>{name}</span>
+          <span style={styles.fieldVal}>{display}</span>
         </div>
       ))}
     </div>
@@ -125,7 +146,7 @@ export default function Transcripts({ token }) {
                     </td>
                     <td style={styles.td}><StatusBadge status={a.status} /></td>
                     <td style={styles.td}>{t?.keywordSet?.name || <span style={styles.empty2}>—</span>}</td>
-                    <td style={styles.td}><FieldsCell fields={t?.fields} /></td>
+                    <td style={styles.td}><FieldsCell fields={t?.fields} keywordSet={t?.keywordSet} /></td>
                     <td style={styles.td}>
                       {t?.auditedAt
                         ? <span style={styles.auditedDate}>{fmt(t.auditedAt)}</span>

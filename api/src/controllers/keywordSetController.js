@@ -30,6 +30,14 @@ exports.list = async (req, res) => {
   res.json(sets);
 };
 
+exports.listMine = async (req, res) => {
+  const sets = await prisma.keywordSet.findMany({
+    where: { users: { some: { userId: req.user.id } } },
+    orderBy: { createdAt: 'asc' },
+  });
+  res.json(sets);
+};
+
 exports.create = async (req, res) => {
   const { name, keywords, webhook } = req.body;
   if (!name || !validateKeywords(keywords)) {

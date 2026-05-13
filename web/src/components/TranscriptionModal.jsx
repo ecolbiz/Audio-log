@@ -59,6 +59,33 @@ function buildCurl(webhook, fields, audio, transcription) {
   return { curl: curlStr, bodyError };
 }
 
+function DispatchResultModal({ result, onClose }) {
+  const isOk = result.ok;
+  let bodyDisplay = result.body || '(sem resposta)';
+  try { bodyDisplay = JSON.stringify(JSON.parse(result.body), null, 2); } catch {}
+  return (
+    <div style={curlStyles.overlay} onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div style={curlStyles.box}>
+        <div style={curlStyles.header}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={curlStyles.title}>Retorno do envio</span>
+            <span style={{ fontSize: 12, fontWeight: 700, padding: '2px 10px', borderRadius: 20, background: isOk ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)', color: isOk ? '#22c55e' : '#ef4444', border: `1px solid ${isOk ? '#22c55e' : '#ef4444'}` }}>
+              HTTP {result.status}
+            </span>
+          </div>
+          <button style={curlStyles.closeBtn} onClick={onClose}>✕</button>
+        </div>
+        {!isOk && (
+          <div style={curlStyles.errorBanner}>
+            <strong>Envio falhou</strong> — a API retornou um status de erro.
+          </div>
+        )}
+        <pre style={curlStyles.pre}>{bodyDisplay}</pre>
+      </div>
+    </div>
+  );
+}
+
 function CurlModal({ curl, bodyError, onClose }) {
   const [copied, setCopied] = useState(false);
   function copy() {
@@ -105,6 +132,7 @@ export default function TranscriptionModal({ audio, token, user, onClose }) {
   const [fields, setFields] = useState({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const [applying, setApplying] = useState(false);
   const [normalizing, setNormalizing] = useState(false);
   const [auditing, setAuditing] = useState(false);
@@ -169,6 +197,7 @@ export default function TranscriptionModal({ audio, token, user, onClose }) {
     if (res && res.ok) {
       const t = await res.json();
       setTranscription(t);
+      setFields(t.fields || {});
     }
     setAuditing(false);
   }
@@ -182,14 +211,18 @@ export default function TranscriptionModal({ audio, token, user, onClose }) {
     });
     if (res) {
       const data = await res.json();
-      setDispatchResult({ ok: res.ok, message: res.ok ? `Enviado (HTTP ${data.status})` : (data.error || `Erro ${data.status}`) });
-      setTimeout(() => setDispatchResult(null), 4000);
+      if (res.ok) {
+        setDispatchResult({ ok: data.ok, status: data.status, body: data.body });
+      } else {
+        setDispatchResult({ ok: false, status: data.status || res.status, body: data.error || '' });
+      }
     }
     setDispatching(false);
   }
 
   async function handleSave() {
     setSaving(true);
+    setSaveError('');
     const res = await apiFetch(`/audios/${audio.id}/transcription`, {
       token,
       method: 'PATCH',
@@ -197,8 +230,15 @@ export default function TranscriptionModal({ audio, token, user, onClose }) {
       body: JSON.stringify({ fields, keywordSetId: selectedSetId || null }),
     });
     if (res) {
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
+      const data = await res.json();
+      if (res.ok) {
+        setTranscription(data);
+        setFields(data.fields || {});
+        setSaved(true);
+        setTimeout(() => setSaved(false), 2000);
+      } else {
+        setSaveError(data.error || 'Erro ao salvar.');
+      }
     }
     setSaving(false);
   }
@@ -300,7 +340,7 @@ export default function TranscriptionModal({ audio, token, user, onClose }) {
                 ✓ Auditado em {new Date(transcription.auditedAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
                 {transcription.auditedBy?.name ? ` · ${transcription.auditedBy.name}` : ''}
               </span>
-            ) : (
+            ) : selectedSetId ? (
               <button
                 style={{ ...styles.normalizeBtn, ...(normalizing ? styles.saveBtnDisabled : {}) }}
                 onClick={handleNormalize}
@@ -308,16 +348,11 @@ export default function TranscriptionModal({ audio, token, user, onClose }) {
               >
                 {normalizing ? 'Normalizando...' : 'Normalizar campos'}
               </button>
-            )}
+            ) : null}
           </div>
           <div style={styles.footerRight}>
             {activeSet?.webhook?.url && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                {dispatchResult && (
-                  <span style={{ fontSize: 12, fontWeight: 600, color: dispatchResult.ok ? '#22c55e' : '#ef4444' }}>
-                    {dispatchResult.message}
-                  </span>
-                )}
                 {user?.role === 'ADMIN' && (
                   <button style={styles.curlBtn} onClick={() => setShowCurl(true)} disabled={loading}>
                     Ver cURL
@@ -333,6 +368,7 @@ export default function TranscriptionModal({ audio, token, user, onClose }) {
                 </button>
               </div>
             )}
+            {saveError && <span style={styles.saveError}>{saveError}</span>}
             <button style={styles.cancelBtn} onClick={onClose}>Fechar</button>
             <button
               style={{
@@ -359,6 +395,9 @@ export default function TranscriptionModal({ audio, token, user, onClose }) {
         const { curl, bodyError } = buildCurl(activeSet.webhook, fields, audio, transcription);
         return <CurlModal curl={curl} bodyError={bodyError} onClose={() => setShowCurl(false)} />;
       })()}
+      {dispatchResult && (
+        <DispatchResultModal result={dispatchResult} onClose={() => setDispatchResult(null)} />
+      )}
     </div>
   );
 }
@@ -578,6 +617,11 @@ const styles = {
   saveBtnDisabled: {
     opacity: 0.6,
     cursor: 'not-allowed',
+  },
+  saveError: {
+    fontSize: 12,
+    color: '#ef4444',
+    fontWeight: 600,
   },
   empty: {
     flex: 1,

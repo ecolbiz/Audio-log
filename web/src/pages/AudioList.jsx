@@ -15,12 +15,13 @@ function statusLabel(status) {
   return { text: 'Processando', color: '#f59e0b' };
 }
 
-function AudioCard({ audio, userName, isPlaying, onTogglePlay, onDelete, isDeleting, onHide, isHiding, onOpen }) {
+function AudioCard({ audio, userName, isPlaying, onTogglePlay, onDelete, isDeleting, onHide, isHiding, onUnhide, onOpen }) {
   const st = statusLabel(audio.status);
   const isAudited = !!audio.transcription?.auditedAt;
+  const isHidden = !!audio.hidden;
 
   return (
-    <div style={styles.card}>
+    <div style={{ ...styles.card, ...(isHidden ? styles.cardHidden : {}) }}>
       <div style={styles.cardTop}>
         <button
           style={{ ...styles.playBtn, ...(isPlaying ? styles.playBtnActive : {}) }}
@@ -45,6 +46,12 @@ function AudioCard({ audio, userName, isPlaying, onTogglePlay, onDelete, isDelet
           </span>
         )}
 
+        {isHidden && (
+          <span style={{ ...styles.badge, color: 'var(--text)', borderColor: 'var(--border)', opacity: 0.6 }}>
+            Oculta
+          </span>
+        )}
+
         {audio.status === 'TRANSCRIBED' && (
           <button style={styles.expandBtn} onClick={() => onOpen(audio)}>
             Abrir
@@ -55,7 +62,16 @@ function AudioCard({ audio, userName, isPlaying, onTogglePlay, onDelete, isDelet
           <span style={styles.spinner} title="Aguardando transcrição..." />
         )}
 
-        {isAudited ? (
+        {isHidden ? (
+          <button
+            style={styles.unhideBtn}
+            onClick={() => onUnhide(audio)}
+            disabled={isHiding}
+            title="Tornar gravação visível novamente"
+          >
+            {isHiding ? '...' : 'Desocultar'}
+          </button>
+        ) : isAudited ? (
           <button
             style={styles.hideBtn}
             onClick={() => onHide(audio)}
@@ -117,7 +133,20 @@ export default function AudioList({ token, user }) {
     const res = await apiFetch(`/audios/${audio.id}/hide`, { token, method: 'PATCH' });
     setHidingId(null);
     if (res && res.ok) {
-      setAudios((prev) => prev.filter((a) => a.id !== audio.id));
+      if (showHidden) {
+        setAudios((prev) => prev.map((a) => a.id === audio.id ? { ...a, hidden: true } : a));
+      } else {
+        setAudios((prev) => prev.filter((a) => a.id !== audio.id));
+      }
+    }
+  }
+
+  async function handleUnhide(audio) {
+    setHidingId(audio.id);
+    const res = await apiFetch(`/audios/${audio.id}/unhide`, { token, method: 'PATCH' });
+    setHidingId(null);
+    if (res && res.ok) {
+      setAudios((prev) => prev.map((a) => a.id === audio.id ? { ...a, hidden: false } : a));
     }
   }
 
@@ -181,6 +210,7 @@ export default function AudioList({ token, user }) {
               isDeleting={deletingId === a.id}
               onHide={handleHide}
               isHiding={hidingId === a.id}
+              onUnhide={handleUnhide}
               onOpen={setOpenAudio}
             />
           ))}
@@ -324,6 +354,21 @@ const styles = {
     borderRadius: 6,
     color: 'var(--text)',
     flexShrink: 0,
+  },
+  unhideBtn: {
+    background: 'none',
+    border: '1px solid var(--accent)',
+    cursor: 'pointer',
+    fontSize: 12,
+    padding: '4px 10px',
+    borderRadius: 6,
+    color: 'var(--accent)',
+    fontWeight: 600,
+    flexShrink: 0,
+  },
+  cardHidden: {
+    opacity: 0.6,
+    borderStyle: 'dashed',
   },
   spinner: {
     display: 'inline-block',

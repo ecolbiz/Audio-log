@@ -20,11 +20,13 @@ router.post('/audios', auth, upload.single('audio'), audioController.uploadAudio
 router.get('/audios/mine', auth, audioController.listMine);
 router.delete('/audios/:id', auth, audioController.deleteMine);
 router.patch('/audios/:id/hide', auth, audioController.hideMine);
+router.patch('/audios/:id/unhide', auth, audioController.unhideMine);
 
 router.get('/admin/audios', auth, audioController.searchAll);
 router.patch('/admin/audios/:id', auth, audioController.updateStructured);
 
 router.get('/keyword-sets', auth, keywordSetController.list);
+router.get('/keyword-sets/mine', auth, keywordSetController.listMine);
 router.post('/keyword-sets', auth, adminOnly, keywordSetController.create);
 router.patch('/keyword-sets/:id', auth, adminOnly, keywordSetController.update);
 router.delete('/keyword-sets/:id', auth, adminOnly, keywordSetController.remove);
@@ -38,6 +40,7 @@ router.post('/audios/:id/transcription/normalize', auth, transcriptionController
 router.post('/audios/:id/transcription/dispatch', auth, transcriptionController.dispatch);
 
 router.get('/admin/users', auth, adminOnly, userController.list);
+router.put('/admin/users/:id/keyword-sets', auth, adminOnly, userController.setKeywordSets);
 router.post('/admin/users', auth, adminOnly, userController.create);
 router.patch('/admin/users/:id', auth, adminOnly, userController.update);
 router.delete('/admin/users/:id', auth, adminOnly, userController.remove);

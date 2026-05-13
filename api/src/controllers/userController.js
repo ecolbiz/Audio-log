@@ -2,10 +2,30 @@ const bcrypt = require('bcryptjs');
 const prisma = require('../utils/prisma');
 
 const SELECT = { id: true, name: true, email: true, role: true, createdAt: true };
+const KS_INCLUDE = { keywordSets: { include: { keywordSet: { select: { id: true, name: true } } } } };
 
 exports.list = async (req, res) => {
-  const users = await prisma.user.findMany({ select: SELECT, orderBy: { createdAt: 'asc' } });
+  const users = await prisma.user.findMany({
+    select: { ...SELECT, ...KS_INCLUDE },
+    orderBy: { createdAt: 'asc' },
+  });
   res.json(users);
+};
+
+exports.setKeywordSets = async (req, res) => {
+  const { id } = req.params;
+  const { keywordSetIds = [] } = req.body;
+  await prisma.userKeywordSet.deleteMany({ where: { userId: id } });
+  if (keywordSetIds.length) {
+    await prisma.userKeywordSet.createMany({
+      data: keywordSetIds.map((ksId) => ({ userId: id, keywordSetId: ksId })),
+    });
+  }
+  const rows = await prisma.userKeywordSet.findMany({
+    where: { userId: id },
+    include: { keywordSet: { select: { id: true, name: true } } },
+  });
+  res.json(rows.map((r) => r.keywordSet));
 };
 
 exports.create = async (req, res) => {
